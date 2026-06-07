@@ -66,6 +66,23 @@ def test_convert_image_with_claude_nonzero_exit(tmp_path: Path, monkeypatch: pyt
         convert_image_with_claude(tmp_path / "p.png", system_prompt="", user_text="")
 
 
+def test_convert_image_with_claude_auth_error_is_actionable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(claude_engine.shutil, "which", lambda _name: "/usr/bin/claude")
+    auth_json = (
+        '{"is_error": true, "api_error_status": 401, '
+        '"result": "Failed to authenticate. API Error: 401 Invalid authentication credentials"}'
+    )
+    monkeypatch.setattr(
+        claude_engine.subprocess,
+        "run",
+        lambda cmd, **k: SimpleNamespace(returncode=1, stdout=auth_json, stderr=""),
+    )
+    with pytest.raises(RuntimeError, match="setup-token"):
+        convert_image_with_claude(tmp_path / "p.png", system_prompt="", user_text="")
+
+
 def test_claude_available_reflects_which(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(claude_engine.shutil, "which", lambda _name: "/usr/bin/claude")
     assert claude_engine.claude_available() is True

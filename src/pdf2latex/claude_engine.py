@@ -25,6 +25,19 @@ def claude_available() -> bool:
     return shutil.which("claude") is not None
 
 
+def _error_detail(stdout: str) -> str | None:
+    """If ``claude -p`` reported an error in its JSON result, return it, else None."""
+    try:
+        data = json.loads(stdout.strip())
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if data.get("is_error"):
+        status = data.get("api_error_status")
+        msg = data.get("result") or "unknown error"
+        return f"{msg} (HTTP {status})" if status else str(msg)
+    return None
+
+
 def _parse_output(stdout: str) -> tuple[str, int, int]:
     """Return (latex, prompt_tokens, completion_tokens) from ``claude -p`` JSON.
 
@@ -81,8 +94,17 @@ def convert_image_with_claude(
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"claude -p timed out after {timeout}s") from exc
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()[:300]
+    err = _error_detail(proc.stdout)
+    if err is not None or proc.returncode != 0:
+        low = (err or "").lower()
+        if "authenticat" in low or "401" in low or "invalid authentication" in low:
+            raise RuntimeError(
+                "Claude CLI is not authenticated for headless use (HTTP 401). In a "
+                "normal terminal run `claude setup-token` and export the resulting "
+                "CLAUDE_CODE_OAUTH_TOKEN (or `claude auth login`), then retry — or use "
+                "--engine openai."
+            )
+        detail = (err or proc.stderr or proc.stdout or "").strip()[:300]
         raise RuntimeError(f"claude -p failed (exit {proc.returncode}): {detail}")
     latex, pt, ct = _parse_output(proc.stdout)
     return PageResult(
