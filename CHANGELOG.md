@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `\begin`/`\end`, even unescaped `$`), an optional `chktex` deep check, an
   opt-in `--repair` auto-fix round-trip, a `needs-review.txt` report, and a new
   `validate` subcommand to re-check an existing conversion offline.
+- Configurable output location: `PDF2LATEX_OUTPUT_DIR` and a per-command `--out`
+  flag let generated files live anywhere on disk instead of `./output`.
 
 ## [0.1.0] - 2026-06-06
 

@@ -16,7 +16,7 @@ from pathlib import Path
 from pypdf import PdfReader
 
 from .assemble import assemble_monolith, write_standalone
-from .layout import BookPaths
+from .layout import OUTPUT_DIR, BookPaths
 from .pricing import (
     DEFAULT_INPUT_TOKENS_PER_PAGE,
     DEFAULT_OUTPUT_TOKENS_PER_PAGE,
@@ -156,6 +156,7 @@ def convert_pdf(
     assume_yes: bool = False,
     repair: bool = False,
     repair_retries: int = 1,
+    output_root: Path | None = None,
 ) -> BookPaths:
     """Convert ``source_pdf`` to per-page .tex files and (re)build the monolith.
 
@@ -176,7 +177,7 @@ def convert_pdf(
 
     Returns the resolved :class:`BookPaths` so callers can keep working with it.
     """
-    paths = BookPaths.for_source(source_pdf)
+    paths = BookPaths.for_source(source_pdf, output_root=output_root or OUTPUT_DIR)
     paths.ensure_dirs()
     prices = load_prices()
 

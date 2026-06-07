@@ -128,6 +128,22 @@ pdf2latex compile "My Book"
 
 `<slug>` is the folder name created under `output/` (e.g. `My-Book`).
 
+### Output location
+
+By default everything generated lands in `./output/` (git-ignored). To keep test
+runs out of the repo entirely, send output to any folder on your machine:
+
+```bash
+# Per command:
+pdf2latex convert "My Book.pdf" --out ~/Documents/pdf2latex-output
+
+# Or once, for every command (recommended):
+export PDF2LATEX_OUTPUT_DIR=~/Documents/pdf2latex-output
+```
+
+The same location is used by `assemble`, `split`, `compile` and `validate`, so a
+conversion and its follow-up commands always agree on where the files are.
+
 ## Chapter config format
 
 ```json

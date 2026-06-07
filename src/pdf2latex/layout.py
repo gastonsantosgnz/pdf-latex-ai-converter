@@ -12,6 +12,7 @@ Output layout for a source PDF named e.g. ``My Book.pdf``::
 
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -20,8 +21,21 @@ from pathlib import Path
 # Repo root = two levels up from this file (src/pdf2latex/layout.py).
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SOURCES_DIR = PROJECT_ROOT / "sources"
-OUTPUT_DIR = PROJECT_ROOT / "output"
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+
+
+def _default_output_dir() -> Path:
+    """Resolve where generated output should go.
+
+    Defaults to ``<repo>/output`` but can be redirected anywhere on the machine
+    by setting ``PDF2LATEX_OUTPUT_DIR`` (so test conversions never have to live
+    inside the repository). ``~`` is expanded.
+    """
+    env = os.environ.get("PDF2LATEX_OUTPUT_DIR")
+    return Path(env).expanduser() if env else PROJECT_ROOT / "output"
+
+
+OUTPUT_DIR = _default_output_dir()
 
 
 def slugify(name: str) -> str:

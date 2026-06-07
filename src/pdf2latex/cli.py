@@ -59,6 +59,7 @@ def _cmd_convert(args: argparse.Namespace) -> int:
         assume_yes=args.yes,
         repair=args.repair,
         repair_retries=args.repair_retries,
+        output_root=args.out,
     )
     return 0
 
@@ -66,7 +67,7 @@ def _cmd_convert(args: argparse.Namespace) -> int:
 def _cmd_assemble(args: argparse.Namespace) -> int:
     from .assemble import assemble_monolith, write_standalone
 
-    paths = _paths_for(args.source)
+    paths = _paths_for(args.source, args.out)
     assemble_monolith(paths)
     write_standalone(paths, title=args.title, subtitle=args.subtitle)
     print(f"Assembled: {paths.monolith_tex.name} and {paths.standalone_tex.name}")
@@ -76,7 +77,7 @@ def _cmd_assemble(args: argparse.Namespace) -> int:
 def _cmd_split(args: argparse.Namespace) -> int:
     from .splitter import split_auto, split_from_config
 
-    paths = _paths_for(args.source)
+    paths = _paths_for(args.source, args.out)
     if args.auto:
         split_auto(paths)
     elif args.config:
@@ -90,7 +91,7 @@ def _cmd_split(args: argparse.Namespace) -> int:
 def _cmd_compile(args: argparse.Namespace) -> int:
     from .compile import compile_pdf
 
-    paths = _paths_for(args.source)
+    paths = _paths_for(args.source, args.out)
     compile_pdf(paths.standalone_tex, engine=args.engine, runs=args.runs)
     return 0
 
@@ -104,7 +105,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         write_needs_review,
     )
 
-    paths = _paths_for(args.source)
+    paths = _paths_for(args.source, args.out)
     review = validate_existing(paths)
     if not review:
         print(f"No converted pages found in {paths.pages_dir}.")
@@ -125,14 +126,28 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _paths_for(source: str) -> BookPaths:
+def _paths_for(source: str, output_root: Path | None = None) -> BookPaths:
     """Accept either a source PDF reference or an existing output slug."""
-    slug_dir = OUTPUT_DIR / source
+    root = output_root or OUTPUT_DIR
+    slug_dir = root / source
     if slug_dir.is_dir():
         # Reconstruct from an existing output folder name.
         fake_pdf = SOURCES_DIR / f"{source}.pdf"
-        return BookPaths.for_source(fake_pdf)
-    return BookPaths.for_source(resolve_source(source))
+        return BookPaths.for_source(fake_pdf, output_root=root)
+    return BookPaths.for_source(resolve_source(source), output_root=root)
+
+
+def _add_out_arg(p: argparse.ArgumentParser) -> None:
+    """Add a shared ``--out`` flag to redirect generated output off the repo."""
+    p.add_argument(
+        "--out",
+        "--output-dir",
+        dest="out",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Output directory (default: ./output, or $PDF2LATEX_OUTPUT_DIR if set).",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -188,24 +203,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=1,
         help="Max repair round-trips per failing page (default 1).",
     )
+    _add_out_arg(pc)
     pc.set_defaults(func=_cmd_convert)
 
     pa = sub.add_parser("assemble", help="Rebuild monolith + standalone from pages.")
     pa.add_argument("source", help="Source PDF reference or existing output slug.")
     pa.add_argument("--title", default=None)
     pa.add_argument("--subtitle", default=None)
+    _add_out_arg(pa)
     pa.set_defaults(func=_cmd_assemble)
 
     ps = sub.add_parser("split", help="Split monolith into chapters.")
     ps.add_argument("source", help="Source PDF reference or existing output slug.")
     ps.add_argument("--config", default=None, help="JSON chapter config.")
     ps.add_argument("--auto", action="store_true", help="Split on blank-page separators.")
+    _add_out_arg(ps)
     ps.set_defaults(func=_cmd_split)
 
     pp = sub.add_parser("compile", help="Compile the standalone .tex to PDF.")
     pp.add_argument("source", help="Source PDF reference or existing output slug.")
     pp.add_argument("--engine", default="pdflatex")
     pp.add_argument("--runs", type=int, default=2)
+    _add_out_arg(pp)
     pp.set_defaults(func=_cmd_compile)
 
     pvd = sub.add_parser("validate", help="Check converted pages for broken LaTeX (offline).")
@@ -214,6 +233,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--deep-check", action="store_true", help="Also run an external linter (chktex)."
     )
     pvd.add_argument("--engine", default="chktex", help="Deep-check linter (default chktex).")
+    _add_out_arg(pvd)
     pvd.set_defaults(func=_cmd_validate)
 
     return parser

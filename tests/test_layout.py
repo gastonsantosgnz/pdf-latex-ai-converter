@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from pdf2latex import layout
 from pdf2latex.layout import BookPaths, resolve_source, slugify
 
 
@@ -69,3 +70,18 @@ def test_resolve_source_accepts_full_path(tmp_path: Path) -> None:
 def test_resolve_source_missing_raises_systemexit(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         resolve_source("nope", sources_dir=tmp_path)
+
+
+def test_default_output_dir_uses_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PDF2LATEX_OUTPUT_DIR", str(tmp_path / "mine"))
+    assert layout._default_output_dir() == tmp_path / "mine"
+
+
+def test_default_output_dir_expands_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PDF2LATEX_OUTPUT_DIR", "~/pdf2latex-out")
+    assert layout._default_output_dir() == Path("~/pdf2latex-out").expanduser()
+
+
+def test_default_output_dir_falls_back_to_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PDF2LATEX_OUTPUT_DIR", raising=False)
+    assert layout._default_output_dir() == layout.PROJECT_ROOT / "output"

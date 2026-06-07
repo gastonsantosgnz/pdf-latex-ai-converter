@@ -57,7 +57,7 @@ def out_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(
         converter,
         "BookPaths",
-        SimpleNamespace(for_source=lambda src: real_for_source(src, output_root=root)),
+        SimpleNamespace(for_source=lambda src, output_root=None: real_for_source(src, output_root=root)),
     )
     return root
 
@@ -68,6 +68,29 @@ def _stub_pipeline(monkeypatch: pytest.MonkeyPatch, convert_fn) -> None:
     )
     monkeypatch.setattr(converter, "make_client", lambda: object())
     monkeypatch.setattr(converter, "convert_image_b64", convert_fn)
+
+
+def test_convert_pdf_honors_explicit_output_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # No out_root fixture here: convert_pdf must route via the output_root arg.
+    pdf = _make_pdf(tmp_path / "book.pdf", pages=1)
+    custom = tmp_path / "elsewhere"
+
+    monkeypatch.setattr(
+        converter, "render_page_to_base64", lambda pdf, page_index=0, scale=2.0: "img"
+    )
+    monkeypatch.setattr(converter, "make_client", lambda: object())
+    monkeypatch.setattr(
+        converter,
+        "convert_image_b64",
+        lambda client, img, *, model, max_tokens, profile: PageResult(latex="X", total_tokens=1),
+    )
+
+    paths = convert_pdf(pdf, model="gpt-4o", assume_yes=True, output_root=custom)
+
+    assert paths.out_dir == custom / paths.slug
+    assert paths.page_tex(1).exists()
 
 
 def test_convert_pdf_happy_path(
@@ -225,7 +248,11 @@ def test_parallel_output_matches_sequential_byte_for_byte(
     monkeypatch.setattr(
         converter,
         "BookPaths",
-        SimpleNamespace(for_source=lambda src: real_for_source(src, output_root=roots["current"])),
+        SimpleNamespace(
+            for_source=lambda src, output_root=None: real_for_source(
+                src, output_root=roots["current"]
+            )
+        ),
     )
     monkeypatch.setattr(
         converter, "render_page_to_base64", lambda pdf, page_index=0, scale=2.0: f"img-{page_index}"
