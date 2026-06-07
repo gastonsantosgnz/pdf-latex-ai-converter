@@ -141,6 +141,7 @@
     <h2 id="progressTitle" style="margin-bottom:12px">Progress</h2>
     <div class="status"><span id="statusText" class="muted">Starting…</span><span id="tally" class="muted"></span></div>
     <div class="bar"><i id="barFill"></i></div>
+    <div class="status" style="margin-top:8px"><span id="timer" class="muted"></span><span></span></div>
     <div class="log" id="log"></div>
   </div>
 
@@ -179,7 +180,38 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let jobId = null, es = null, running = false, estState = {}, selectedWorkers = 4;
+let convStart = 0, convTimer = null, lastEta = "", activeSource = "";
 const LABEL = { pending: "Pending", in_progress: "In progress", done: "Done" };
+const DL = {
+  monolith: { label: "LaTeX (.tex)", tip: "All converted pages assembled into one .tex file (raw)" },
+  standalone: { label: "Compilable (.tex)", tip: "Ready-to-compile document (preamble + title + content) -> PDF" },
+  "needs-review": { label: "needs-review", tip: "Pages that still need a human check" },
+};
+
+function fmtTime(s) {
+  s = Math.max(0, Math.round(s));
+  const m = Math.floor(s / 60), sec = s % 60;
+  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+}
+function updateTimer() {
+  if (!convStart) { $("timer").textContent = ""; return; }
+  const elapsed = (Date.now() - convStart) / 1000;
+  $("timer").textContent = `Elapsed ${fmtTime(elapsed)}` + (lastEta ? ` · ~${lastEta} left (estimate)` : "");
+}
+function updateEta(done, total) {
+  const elapsed = (Date.now() - convStart) / 1000;
+  lastEta = done > 0 && total > done ? fmtTime((elapsed / done) * (total - done)) : "";
+}
+function updateRow(done, total, pct) {
+  for (const row of document.querySelectorAll(".item")) {
+    if (row.dataset.src !== activeSource) continue;
+    const fill = row.querySelector(".mini > i");
+    if (fill) fill.style.width = pct + "%";
+    const meta = row.querySelector(".item-meta span");
+    if (meta) meta.textContent = `${done}/${total} pages`;
+    return;
+  }
+}
 const PROFILE_HINT = {
   default: "default — transcribe every page faithfully (text, math, tables). Best for most documents.",
   dense: "dense — for textbooks packed with tables, diagrams and photos: keeps tables and figures, skips decorative photos and colors.",
@@ -340,11 +372,12 @@ function renderItem(it) {
   const pct = it.total ? Math.round((it.done / it.total) * 100) : 0;
   const el = document.createElement("div");
   el.className = "item";
+  el.dataset.src = it.name;
   const convertLabel = it.status === "in_progress" ? "Resume" : it.status === "done" ? "Reconvert" : "Convert";
   const review = it.needs_review ? `<span class="chip">${it.needs_review} need review</span>` : "";
   const downloads = (it.files || [])
-    .filter((f) => f.kind === "monolith" || f.kind === "standalone" || f.kind === "needs-review")
-    .map((f) => `<a href="/api/output/${it.slug}/${f.kind}">${f.kind}</a>`)
+    .filter((f) => DL[f.kind])
+    .map((f) => `<a href="/api/output/${it.slug}/${f.kind}" title="${DL[f.kind].tip}">${DL[f.kind].label}</a>`)
     .join("");
   el.innerHTML = `
     <div class="item-top">
@@ -397,6 +430,9 @@ function setBusy(busy) {
 async function start(dryRun, source) {
   if (running) return;
   setBusy(true);
+  activeSource = source;
+  convStart = Date.now(); lastEta = "";
+  clearInterval(convTimer); convTimer = setInterval(updateTimer, 1000); updateTimer();
   $("progressCard").classList.remove("hidden");
   $("progressTitle").textContent = (dryRun ? "Estimate — " : "Converting — ") + source;
   $("log").innerHTML = ""; $("barFill").style.width = "0%"; $("tally").textContent = "";
@@ -420,7 +456,7 @@ async function start(dryRun, source) {
   if (es) es.close();
   es = new EventSource(`/api/jobs/${jobId}/events`);
   es.onmessage = (e) => handle(JSON.parse(e.data));
-  es.onerror = () => { es.close(); setBusy(false); };
+  es.onerror = () => { es.close(); clearInterval(convTimer); setBusy(false); };
 }
 
 function handle(ev) {
@@ -437,6 +473,9 @@ function handle(ev) {
       $("statusText").textContent = `Page ${ev.page} ${ev.status} — ${ev.done}/${ev.total}`;
       $("tally").textContent = `${ev.tokens.toLocaleString()} tok | ~$${ev.usd.toFixed(2)}`;
       logLine(`page ${ev.page}: ${ev.status}`, ev.status === "err" ? "err" : ev.status === "skip" ? "warn" : "ok");
+      updateEta(ev.done, ev.total);
+      updateTimer();
+      updateRow(ev.done, ev.total, pct);  // keep the Library row in sync, live
       break;
     }
     case "dry_run":
@@ -460,6 +499,8 @@ function handle(ev) {
       break;
     case "_end":
       if (es) es.close();
+      clearInterval(convTimer);
+      lastEta = ""; updateTimer();  // freeze on the final elapsed time
       setBusy(false);
       loadLibrary();
       break;
