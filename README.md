@@ -125,6 +125,7 @@ pdf2latex compile "My Book"
 | `pdf2latex split <pdf\|slug>` | Split into chapters: `--config <file.json>` or `--auto`. |
 | `pdf2latex compile <pdf\|slug>` | Compile the standalone `.tex` to PDF: `--engine`, `--runs`. |
 | `pdf2latex validate <pdf\|slug>` | Check converted pages for broken LaTeX offline (braces, environments, math); writes `needs-review.txt`. Flags: `--deep-check`, `--engine`. |
+| `pdf2latex serve` | Launch the optional local web UI in the browser (needs the `[web]` extra). Flags: `--host`, `--port`. |
 
 `<slug>` is the folder name created under `output/` (e.g. `My-Book`).
 
@@ -233,6 +234,21 @@ it uses extra API calls). `--repair-retries N` bounds the attempts per page.
 ```bash
 pdf2latex convert "My Book.pdf" --profile dense --repair
 ```
+
+## Web UI (optional)
+
+Prefer the browser? Install the web extra and launch a small local app:
+
+```bash
+pip install -e ".[web]"
+pdf2latex serve            # then open http://127.0.0.1:8000
+```
+
+From the page you can pick or upload a PDF, choose the model / profile / workers,
+preview scope and cost with a dry run, convert with a live progress bar and a
+running token/cost tally, and download the resulting `.tex` and the
+`needs-review.txt` report. It is a single-user local companion to the CLI and
+reuses the exact same pipeline, so it spends real API credit just like the CLI.
 
 ## Notes
 

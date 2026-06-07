@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pdf2latex</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #171a21; --line: #262b36; --ink: #e6e9ef;
+    --muted: #98a2b3; --accent: #5b8cff; --ok: #3fb37f; --warn: #e0a33e; --err: #e5675c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: .2px; }
+  .sub { color: var(--muted); margin: 4px 0 24px; font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 14px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 130px; }
+  select, input[type=text], input[type=number] {
+    width: 100%; padding: 9px 10px; background: #10131a; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; font-size: 14px;
+  }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 22px; }
+  .check input { width: 16px; height: 16px; }
+  .check label { margin: 0; color: var(--ink); font-size: 14px; }
+  .actions { display: flex; gap: 10px; margin-top: 4px; }
+  button {
+    padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line);
+    background: #1d2230; color: var(--ink); font-size: 14px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #0b1020; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .file { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .bar { height: 10px; background: #10131a; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
+  .status { display: flex; justify-content: space-between; font-size: 13px; margin: 10px 0 6px; }
+  .muted { color: var(--muted); }
+  .log { margin-top: 12px; max-height: 220px; overflow: auto; background: #0c0e13; border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #c7ced9; }
+  .log .err { color: var(--err); } .log .warn { color: var(--warn); } .log .ok { color: var(--ok); }
+  .downloads a { display: inline-block; margin: 4px 8px 0 0; color: var(--accent); text-decoration: none;
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font-size: 13px; }
+  .hidden { display: none; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>pdf2latex</h1>
+  <p class="sub">Convert math-heavy PDFs to LaTeX with a vision LLM.</p>
+
+  <div class="card">
+    <h2>Source</h2>
+    <label for="pdf">PDF in sources/</label>
+    <select id="pdf"></select>
+    <div class="file">
+      <input type="file" id="upload" accept="application/pdf" />
+      <button id="refresh" type="button">Refresh</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <div class="row">
+      <div><label for="model">Model</label><input type="text" id="model" value="gpt-4o" /></div>
+      <div><label for="profile">Profile</label>
+        <select id="profile"><option value="default">default</option><option value="dense">dense</option></select>
+      </div>
+      <div><label for="workers">Workers</label><input type="number" id="workers" value="4" min="1" /></div>
+    </div>
+    <div class="check"><input type="checkbox" id="repair" /><label for="repair">Auto-repair invalid pages (extra API calls)</label></div>
+    <div class="actions" style="margin-top:16px">
+      <button id="estimate" type="button">Estimate cost (dry run)</button>
+      <button id="convert" type="button" class="primary">Convert</button>
+    </div>
+    <p class="note">A conversion spends real OpenAI credit. Use the dry run first to preview scope and cost.</p>
+  </div>
+
+  <div class="card hidden" id="progressCard">
+    <h2>Progress</h2>
+    <div class="status"><span id="statusText" class="muted">Starting…</span><span id="tally" class="muted"></span></div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="log" id="log"></div>
+    <div class="downloads" id="downloads" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let jobId = null, es = null;
+
+async function loadPdfs(selectName) {
+  const r = await fetch("/api/pdfs");
+  const { pdfs } = await r.json();
+  const sel = $("pdf");
+  sel.innerHTML = "";
+  if (!pdfs.length) {
+    sel.innerHTML = '<option value="">(drop PDFs in sources/ or upload one)</option>';
+    return;
+  }
+  for (const name of pdfs) {
+    const o = document.createElement("option");
+    o.value = name; o.textContent = name;
+    if (name === selectName) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+
+$("refresh").onclick = () => loadPdfs();
+
+$("upload").onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch("/api/upload", { method: "POST", body: fd });
+  if (!r.ok) { alert("Upload failed"); return; }
+  const { name } = await r.json();
+  await loadPdfs(name);
+  e.target.value = "";
+};
+
+function logLine(text, cls) {
+  const el = $("log");
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = text;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setBusy(busy) {
+  $("convert").disabled = busy;
+  $("estimate").disabled = busy;
+}
+
+async function start(dryRun) {
+  const source = $("pdf").value;
+  if (!source) { alert("Choose or upload a PDF first."); return; }
+  setBusy(true);
+  $("progressCard").classList.remove("hidden");
+  $("log").innerHTML = ""; $("downloads").innerHTML = "";
+  $("barFill").style.width = "0%"; $("tally").textContent = "";
+  $("statusText").textContent = dryRun ? "Dry run…" : "Converting…";
+
+  const fd = new FormData();
+  fd.append("source", source);
+  fd.append("model", $("model").value || "gpt-4o");
+  fd.append("profile", $("profile").value);
+  fd.append("workers", $("workers").value || "4");
+  fd.append("dry_run", dryRun ? "true" : "false");
+  fd.append("repair", $("repair").checked ? "true" : "false");
+
+  const r = await fetch("/api/convert", { method: "POST", body: fd });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    $("statusText").textContent = "Error: " + (err.detail || r.status);
+    setBusy(false); return;
+  }
+  jobId = (await r.json()).job_id;
+  if (es) es.close();
+  es = new EventSource(`/api/jobs/${jobId}/events`);
+  es.onmessage = (e) => handle(JSON.parse(e.data));
+  es.onerror = () => { es.close(); setBusy(false); };
+}
+
+function handle(ev) {
+  switch (ev.type) {
+    case "preflight": {
+      const warn = ev.known_model ? "" : " (unknown model, priced as fallback)";
+      logLine(`Plan: ${ev.to_convert} to convert of ${ev.in_range} in range (${ev.already} already done), model ${ev.model}, ${ev.workers} workers.`);
+      logLine(`Estimated cost: $${ev.est_low.toFixed(2)} - $${ev.est_high.toFixed(2)}${warn}. Estimate only.`, "warn");
+      break;
+    }
+    case "page": {
+      const pct = ev.total ? Math.round((ev.done / ev.total) * 100) : 100;
+      $("barFill").style.width = pct + "%";
+      $("statusText").textContent = `Page ${ev.page} ${ev.status} — ${ev.done}/${ev.total}`;
+      $("tally").textContent = `${ev.tokens.toLocaleString()} tok | ~$${ev.usd.toFixed(2)}`;
+      const cls = ev.status === "err" ? "err" : ev.status === "skip" ? "warn" : "ok";
+      logLine(`page ${ev.page}: ${ev.status}`, cls);
+      break;
+    }
+    case "dry_run":
+      $("barFill").style.width = "100%";
+      $("statusText").textContent = "Dry run complete (no API calls)";
+      logLine(`Dry run: ${ev.rendered}/${ev.pending} pending page(s) renderable. No API calls were made.`, "ok");
+      break;
+    case "aborted":
+      $("statusText").textContent = "Aborted: " + ev.reason;
+      logLine("Aborted: " + ev.reason, "warn");
+      break;
+    case "error":
+      $("statusText").textContent = "Error";
+      logLine("Error: " + ev.message, "err");
+      break;
+    case "done":
+      $("barFill").style.width = "100%";
+      $("statusText").textContent = `Done — OK ${ev.ok}, failed ${ev.failed}, ${ev.needs_review} need review`;
+      $("tally").textContent = `${ev.tokens.toLocaleString()} tok | ~$${ev.usd.toFixed(2)}`;
+      logLine(`Done. OK=${ev.ok} FAIL=${ev.failed} tokens=${ev.tokens} ~$${ev.usd.toFixed(2)} needs-review=${ev.needs_review}`, "ok");
+      break;
+    case "_end":
+      if (es) es.close();
+      setBusy(false);
+      showDownloads();
+      break;
+  }
+}
+
+async function showDownloads() {
+  if (!jobId) return;
+  const r = await fetch(`/api/jobs/${jobId}`);
+  const job = await r.json();
+  const files = (job.result && job.result.files) || [];
+  const box = $("downloads");
+  box.innerHTML = "";
+  for (const f of files) {
+    const a = document.createElement("a");
+    a.href = `/api/download/${jobId}/${f.kind}`;
+    a.textContent = `Download ${f.kind} (${f.name})`;
+    box.appendChild(a);
+  }
+}
+
+$("convert").onclick = () => start(false);
+$("estimate").onclick = () => start(true);
+loadPdfs();
+</script>
+</body>
+</html>

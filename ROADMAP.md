@@ -140,6 +140,26 @@ per page, and by telling the user exactly which pages still need a human.
 
 ---
 
+## 7. Optional local web UI — `done`
+
+**Goal.** A simple browser interface for users who prefer not to use the CLI:
+pick a PDF, preview cost, convert and follow progress, all from a local page.
+
+**Deliverables.**
+- An optional `[web]` dependency extra (FastAPI + Uvicorn) so the core stays
+  dependency-light; a `pdf2latex serve` command to launch it.
+- A single-page frontend (no build step) to pick or upload a PDF, set
+  model/profile/workers, run a dry-run estimate, and convert.
+- Live progress over Server-Sent Events (per-page status, running token/cost
+  tally), backed by an `on_event` hook on `convert_pdf`, plus result downloads.
+
+**Acceptance criteria.**
+- The web layer is integration-tested with FastAPI's `TestClient` (pipeline
+  stubbed) and the API/SSE flow works end to end without API calls.
+- `pdf2latex serve` prints a clear message if the `[web]` extra is missing.
+
+---
+
 ## Ideas parking lot (unscheduled)
 
 - Multi-provider backends (OpenAI-compatible `base_url`, Anthropic, Gemini).

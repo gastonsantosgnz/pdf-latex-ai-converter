@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `validate` subcommand to re-check an existing conversion offline.
 - Configurable output location: `PDF2LATEX_OUTPUT_DIR` and a per-command `--out`
   flag let generated files live anywhere on disk instead of `./output`.
+- Optional local web UI (`pip install -e ".[web]"`, `pdf2latex serve`): a FastAPI
+  app to pick/upload a PDF, preview cost with a dry run, convert with live
+  progress over Server-Sent Events, and download the results. Backed by a new
+  `on_event` progress hook on `convert_pdf`.
 
 ## [0.1.0] - 2026-06-06
 

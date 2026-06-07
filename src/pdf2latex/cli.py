@@ -7,6 +7,7 @@ Subcommands:
     split      Split the monolith into chapter files (config or --auto).
     compile    Compile the standalone .tex into PDF (needs pdflatex).
     validate   Check converted pages for broken LaTeX (offline).
+    serve      Launch the local web UI (needs the [web] extra).
 """
 
 from __future__ import annotations
@@ -126,6 +127,18 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        from .web import run
+    except ImportError as exc:
+        raise SystemExit(
+            'The web UI needs extra dependencies. Install them with:\n'
+            '  pip install -e ".[web]"'
+        ) from exc
+    run(host=args.host, port=args.port)
+    return 0
+
+
 def _paths_for(source: str, output_root: Path | None = None) -> BookPaths:
     """Accept either a source PDF reference or an existing output slug."""
     root = output_root or OUTPUT_DIR
@@ -235,6 +248,11 @@ def build_parser() -> argparse.ArgumentParser:
     pvd.add_argument("--engine", default="chktex", help="Deep-check linter (default chktex).")
     _add_out_arg(pvd)
     pvd.set_defaults(func=_cmd_validate)
+
+    psv = sub.add_parser("serve", help="Launch the local web UI (needs the [web] extra).")
+    psv.add_argument("--host", default="127.0.0.1", help="Bind host (default 127.0.0.1).")
+    psv.add_argument("--port", type=int, default=8000, help="Bind port (default 8000).")
+    psv.set_defaults(func=_cmd_serve)
 
     return parser
 

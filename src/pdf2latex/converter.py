@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -157,6 +158,7 @@ def convert_pdf(
     repair: bool = False,
     repair_retries: int = 1,
     output_root: Path | None = None,
+    on_event: Callable[[dict], None] | None = None,
 ) -> BookPaths:
     """Convert ``source_pdf`` to per-page .tex files and (re)build the monolith.
 
@@ -180,6 +182,7 @@ def convert_pdf(
     paths = BookPaths.for_source(source_pdf, output_root=output_root or OUTPUT_DIR)
     paths.ensure_dirs()
     prices = load_prices()
+    emit = on_event or (lambda _ev: None)  # structured progress hook (e.g. the web UI)
 
     reader = PdfReader(str(source_pdf))
     total = len(reader.pages)
@@ -210,6 +213,28 @@ def convert_pdf(
         prices=prices,
     )
 
+    in_range = end_page - start_page + 1
+    est = estimate_cost(model, len(pending), prices=prices) if pending else None
+    emit(
+        {
+            "type": "preflight",
+            "pdf": source_pdf.name,
+            "total": total,
+            "start": start_page,
+            "end": end_page,
+            "in_range": in_range,
+            "already": in_range - len(pending),
+            "to_convert": len(pending),
+            "model": model,
+            "profile": profile,
+            "workers": max(1, workers),
+            "est_low": est.usd_low if est else 0.0,
+            "est_high": est.usd_high if est else 0.0,
+            "known_model": est.known_model if est else True,
+            "disclaimer": DISCLAIMER,
+        }
+    )
+
     if dry_run:
         rendered = render_failed = 0
         for page_num in pending:
@@ -225,6 +250,7 @@ def convert_pdf(
             f"DRY RUN complete: {rendered}/{len(pending)} pending page(s) render OK"
             f"{suffix}. No API calls were made.",
         )
+        emit({"type": "dry_run", "rendered": rendered, "failed": render_failed, "pending": len(pending)})
         return paths
 
     if pending and not assume_yes:
@@ -234,10 +260,12 @@ def convert_pdf(
                 "Refusing to start: not an interactive terminal and --yes not set. "
                 "No API calls made.",
             )
+            emit({"type": "aborted", "reason": "non-interactive (pass --yes)"})
             return paths
         answer = input(f"Proceed converting {len(pending)} page(s) with {model}? [y/N] ")
         if answer.strip().lower() not in {"y", "yes"}:
             _log(paths, "Aborted by user. No API calls made.")
+            emit({"type": "aborted", "reason": "declined"})
             return paths
 
     client = make_client()
@@ -286,7 +314,22 @@ def convert_pdf(
             )
         return _Outcome(pt, ct, tt, result.finish_reason, repaired=attempts > 0)
 
+    range_size = end_page - start_page + 1
     pending_set = set(pending)
+
+    def _emit_page(page_num: int, status: str) -> None:
+        emit(
+            {
+                "type": "page",
+                "page": page_num,
+                "status": status,
+                "done": bar.done,
+                "total": range_size,
+                "tokens": tot_tokens,
+                "usd": cost_for_tokens(model, tot_prompt, tot_completion, prices=prices),
+            }
+        )
+
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         futures = {page_num: pool.submit(_convert_one, page_num) for page_num in pending}
         # Consume in page order: counters/logs stay deterministic even when
@@ -296,7 +339,9 @@ def convert_pdf(
                 _log(paths, f"SKIP page {page_num} (already converted)", console=not quiet)
                 ok += 1
                 bar.update(advance=1, note=_tally_note())
+                _emit_page(page_num, "skip")
                 continue
+            status = "ok"
             try:
                 outcome = futures[page_num].result()
                 tot_prompt += outcome.prompt_tokens
@@ -306,14 +351,17 @@ def convert_pdf(
                 extra = "" if outcome.finish_reason in (None, "stop") else f" [{outcome.finish_reason}]"
                 if outcome.repaired:
                     extra += " [repaired]"
+                    status = "repaired"
                 _log(paths, f"OK   page {page_num}{extra}", console=not quiet)
             except Exception as exc:  # noqa: BLE001 - record and continue
                 failed += 1
+                status = "err"
                 paths.pages_dir.joinpath(f"page_{page_num:04d}.err.txt").write_text(
                     repr(exc), encoding="utf-8"
                 )
                 _log(paths, f"ERR  page {page_num} -> {exc!r}", console=not quiet)
             bar.update(advance=1, note=_tally_note())
+            _emit_page(page_num, status)
 
     bar.close()
 
@@ -334,6 +382,19 @@ def convert_pdf(
     )
     if report is not None:
         _log(paths, f"Pages needing manual review are listed in {report.name}")
+
+    emit(
+        {
+            "type": "done",
+            "ok": ok,
+            "failed": failed,
+            "tokens": tot_tokens,
+            "prompt_tokens": tot_prompt,
+            "completion_tokens": tot_completion,
+            "usd": actual,
+            "needs_review": n_review,
+        }
+    )
 
     if end_page < total:
         nxt = end_page + 1
