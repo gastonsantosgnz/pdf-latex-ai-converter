@@ -109,10 +109,12 @@ class JobManager:
 
         try:
             paths = convert_pdf(
-                resolve_source(params["source"]),
+                resolve_source(params["source"], sources_dir=SOURCES_DIR),
                 model=params["model"],
                 profile=params["profile"],
                 workers=params["workers"],
+                start=params.get("start"),
+                end=params.get("end"),
                 dry_run=params["dry_run"],
                 repair=params["repair"],
                 assume_yes=True,
@@ -149,12 +151,66 @@ def create_app() -> FastAPI:
 
     @app.get("/api/info")
     def info() -> dict:
+        from ..pricing import load_prices
+
+        default_model = os.environ.get("PDF2LATEX_MODEL", "gpt-4o")
+        models = sorted(set(load_prices()) | {default_model})
         return {
             "api_key_set": bool(os.environ.get("OPENAI_API_KEY")),
-            "default_model": os.environ.get("PDF2LATEX_MODEL", "gpt-4o"),
+            "default_model": default_model,
+            "models": models,
             "output_dir": str(OUTPUT_DIR),
             "sources_dir": str(SOURCES_DIR),
         }
+
+    @app.get("/api/estimate")
+    def estimate(source: str) -> dict:
+        from pypdf import PdfReader
+
+        from ..pricing import estimate_cost, load_prices
+
+        try:
+            pdf = resolve_source(source, sources_dir=SOURCES_DIR)
+        except SystemExit as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        paths = BookPaths.for_source(pdf, output_root=OUTPUT_DIR)
+        try:
+            total = len(PdfReader(str(pdf)).pages)
+        except Exception:  # noqa: BLE001 - unreadable PDF -> 0 pages
+            total = 0
+        done = (
+            sum(1 for p in paths.pages_dir.glob("page_*.tex") if p.stat().st_size > 0)
+            if paths.pages_dir.exists()
+            else 0
+        )
+        pending = max(total - done, 0)
+        prices = load_prices()
+        models = [
+            {
+                "model": m,
+                "usd_low": est.usd_low,
+                "usd_high": est.usd_high,
+                "known_model": est.known_model,
+            }
+            for m in sorted(prices)
+            for est in [estimate_cost(m, pending, prices=prices)]
+        ]
+        return {
+            "name": pdf.name,
+            "slug": paths.slug,
+            "total": total,
+            "done": done,
+            "pending": pending,
+            "models": models,
+        }
+
+    @app.get("/api/page/{slug}/{number}")
+    def page_tex(slug: str, number: int) -> dict:
+        paths = BookPaths.for_source(SOURCES_DIR / f"{slug}.pdf", output_root=OUTPUT_DIR)
+        tex = paths.page_tex(number)
+        if not tex.exists():
+            raise HTTPException(status_code=404, detail="page not converted yet")
+        return {"page": number, "slug": slug, "latex": tex.read_text(encoding="utf-8")}
 
     @app.get("/api/pdfs")
     def list_pdfs() -> dict:
@@ -220,9 +276,11 @@ def create_app() -> FastAPI:
         workers: int = Form(4),
         dry_run: bool = Form(False),
         repair: bool = Form(False),
+        start: int | None = Form(None),
+        end: int | None = Form(None),
     ) -> dict:
         try:
-            resolve_source(source)
+            resolve_source(source, sources_dir=SOURCES_DIR)
         except SystemExit as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         job = manager.start(
@@ -233,6 +291,8 @@ def create_app() -> FastAPI:
                 "workers": workers,
                 "dry_run": dry_run,
                 "repair": repair,
+                "start": start,
+                "end": end,
             }
         )
         return {"job_id": job.id}
@@ -268,13 +328,7 @@ def create_app() -> FastAPI:
         paths = job.paths or BookPaths.for_source(
             SOURCES_DIR / f"{job_id}.pdf", output_root=OUTPUT_DIR
         )
-        targets = {
-            "monolith": paths.monolith_tex,
-            "standalone": paths.standalone_tex,
-            "needs-review": paths.out_dir / "needs-review.txt",
-            "log": paths.log_file,
-        }
-        target = targets.get(kind)
+        target = _output_targets(paths).get(kind)
         if target is None or not target.exists():
             raise HTTPException(status_code=404, detail="file not found")
         return FileResponse(target, filename=target.name)

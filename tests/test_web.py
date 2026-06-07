@@ -91,7 +91,58 @@ def test_info_reports_config(client: TestClient, monkeypatch: pytest.MonkeyPatch
     data = client.get("/api/info").json()
     assert data["api_key_set"] is True
     assert data["default_model"]
+    assert "gpt-4o" in data["models"]
     assert data["output_dir"] and data["sources_dir"]
+
+
+def test_estimate_returns_per_model_costs(client: TestClient, tmp_path: Path) -> None:
+    _make_pdf(tmp_path / "sources" / "book.pdf", 5)
+    data = client.get("/api/estimate", params={"source": "book.pdf"}).json()
+
+    assert data["total"] == 5 and data["pending"] == 5
+    models = {m["model"]: m for m in data["models"]}
+    assert "gpt-4o" in models
+    assert models["gpt-4o"]["usd_high"] >= models["gpt-4o"]["usd_low"] > 0
+    # A cheaper model estimates a lower cost.
+    assert models["gpt-4o-mini"]["usd_high"] < models["gpt-4o"]["usd_high"]
+
+
+def test_estimate_unknown_source_is_400(client: TestClient) -> None:
+    assert client.get("/api/estimate", params={"source": "nope.pdf"}).status_code == 400
+
+
+def test_page_tex_returns_latex_or_404(client: TestClient, tmp_path: Path) -> None:
+    pages = tmp_path / "out" / "book" / "pages"
+    pages.mkdir(parents=True)
+    (pages / "page_0003.tex").write_text("\\section*{Three}", encoding="utf-8")
+
+    data = client.get("/api/page/book/3").json()
+    assert data["page"] == 3 and "Three" in data["latex"]
+    assert client.get("/api/page/book/9").status_code == 404
+
+
+def test_convert_forwards_start_end(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf = tmp_path / "book.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    captured: dict = {}
+
+    def fake_convert(source_pdf, *, on_event, dry_run, start=None, end=None, **_kw):
+        captured["start"] = start
+        captured["end"] = end
+        on_event({"type": "done", "ok": 1, "failed": 0, "tokens": 0, "usd": 0.0, "needs_review": 0})
+        paths = BookPaths.for_source(source_pdf, output_root=tmp_path / "out")
+        paths.ensure_dirs()
+        return paths
+
+    monkeypatch.setattr("pdf2latex.converter.convert_pdf", fake_convert)
+    job_id = client.post(
+        "/api/convert", data={"source": str(pdf), "start": "2", "end": "2"}
+    ).json()["job_id"]
+    _wait_done(client, job_id)
+
+    assert captured == {"start": 2, "end": 2}
 
 
 def test_list_and_upload_pdfs(client: TestClient) -> None:

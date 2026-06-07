@@ -76,6 +76,14 @@
   .help-body ol, .help-body ul { margin: 0 0 8px; padding-left: 18px; }
   .help-body li { font-size: 13px; margin: 4px 0; color: #c7ced9; }
   .help-body code { background: #0c0e13; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; font: 12px ui-monospace, Menlo, monospace; }
+  .est-table { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+  .est-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: #12151c; }
+  .est-row:hover { border-color: var(--accent); }
+  .est-row.sel { border-color: var(--accent); background: #16203a; }
+  .est-cost { font-size: 13px; color: var(--ok); }
+  .est-test { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .est-test input { width: 90px; }
+  .testout { margin-top: 10px; max-height: 240px; overflow: auto; background: #0c0e13; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: 12px/1.5 ui-monospace, Menlo, monospace; color: #c7ced9; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -103,14 +111,14 @@
   <div class="card">
     <h2 style="margin-bottom:14px">Conversion options</h2>
     <div class="row">
-      <div><label for="model">Model</label><input type="text" id="model" value="gpt-4o" /></div>
+      <div><label for="model">Model</label><select id="model"></select></div>
       <div><label for="profile">Profile</label>
         <select id="profile"><option value="default">default</option><option value="dense">dense</option></select>
       </div>
       <div><label for="workers">Workers</label><input type="number" id="workers" value="4" min="1" /></div>
     </div>
     <div class="check"><input type="checkbox" id="repair" /><label for="repair">Auto-repair invalid pages (extra API calls)</label></div>
-    <p class="note">These settings apply when you Estimate or Convert a PDF below. A conversion spends real OpenAI credit; use the dry-run estimate first.</p>
+    <p class="note">These settings apply to each PDF below. Use a row's <em>Estimate</em> to compare cost across models and test a single page before converting the whole document.</p>
   </div>
 
   <div class="card hidden" id="progressCard">
@@ -143,12 +151,33 @@
       </div>
     </div>
   </div>
+
+  <div id="estimateModal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head"><h2 id="estTitle">Estimate</h2><button id="estClose" type="button" class="sm">Close</button></div>
+      <div id="estBody"></div>
+    </div>
+  </div>
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
-let jobId = null, es = null, running = false;
+let jobId = null, es = null, running = false, estState = {};
 const LABEL = { pending: "Pending", in_progress: "In progress", done: "Done" };
+
+async function loadInfo() {
+  try {
+    const i = await (await fetch("/api/info")).json();
+    const sel = $("model");
+    sel.innerHTML = "";
+    for (const m of i.models) {
+      const o = document.createElement("option");
+      o.value = m; o.textContent = m;
+      if (m === i.default_model) o.selected = true;
+      sel.appendChild(o);
+    }
+  } catch (e) { /* leave the dropdown empty on failure */ }
+}
 
 async function showHelp() {
   try {
@@ -164,6 +193,87 @@ async function showHelp() {
 $("help").onclick = showHelp;
 $("helpClose").onclick = () => $("helpModal").classList.add("hidden");
 $("helpModal").onclick = (e) => { if (e.target.id === "helpModal") $("helpModal").classList.add("hidden"); };
+
+const closeEstimate = () => $("estimateModal").classList.add("hidden");
+$("estClose").onclick = closeEstimate;
+$("estimateModal").onclick = (e) => { if (e.target.id === "estimateModal") closeEstimate(); };
+
+async function openEstimate(source) {
+  let d;
+  try {
+    const r = await fetch(`/api/estimate?source=${encodeURIComponent(source)}`);
+    if (!r.ok) { alert("Could not estimate this PDF."); return; }
+    d = await r.json();
+  } catch (e) { alert("Could not estimate this PDF."); return; }
+  estState = { source, slug: d.slug, total: d.total };
+  $("estTitle").textContent = `Estimate & test — ${d.name}`;
+  const current = $("model").value;
+  const rows = d.models.map((m) => `
+    <div class="est-row ${m.model === current ? "sel" : ""}" data-model="${m.model}">
+      <span>${m.model}</span><span class="est-cost">$${m.usd_low.toFixed(2)} – $${m.usd_high.toFixed(2)}</span>
+    </div>`).join("");
+  $("estBody").innerHTML = `
+    <p class="muted" style="font-size:13px;margin:0 0 10px">${d.pending} of ${d.total} pages to convert. Approximate cost per model — click one to use it:</p>
+    <div class="est-table">${rows}</div>
+    <h3 style="font-size:13px;margin:16px 0 6px">Test one page first</h3>
+    <div class="est-test">
+      <input type="number" id="testPage" value="1" min="1" max="${d.total || 1}" />
+      <button id="testBtn" type="button" class="sm">Test page</button>
+      <span id="testStatus" class="muted" style="font-size:12px"></span>
+    </div>
+    <pre id="testOut" class="testout hidden"></pre>
+    <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+      <button id="estConvert" type="button" class="primary">Convert all pending</button>
+    </div>`;
+  $("estBody").querySelectorAll(".est-row").forEach((row) => {
+    row.onclick = () => {
+      $("model").value = row.dataset.model;
+      $("estBody").querySelectorAll(".est-row").forEach((r) => r.classList.remove("sel"));
+      row.classList.add("sel");
+    };
+  });
+  $("testBtn").onclick = () => runTest(source, parseInt($("testPage").value || "1", 10));
+  $("estConvert").onclick = () => { closeEstimate(); start(false, source); };
+  $("estimateModal").classList.remove("hidden");
+}
+
+function runTest(source, n) {
+  $("testBtn").disabled = true;
+  $("testOut").classList.add("hidden");
+  $("testStatus").textContent = `converting page ${n}…`;
+  const fd = new FormData();
+  fd.append("source", source);
+  fd.append("model", $("model").value);
+  fd.append("profile", $("profile").value);
+  fd.append("workers", "1");
+  fd.append("start", String(n));
+  fd.append("end", String(n));
+  fetch("/api/convert", { method: "POST", body: fd })
+    .then((r) => r.ok ? r.json() : Promise.reject())
+    .then(({ job_id }) => {
+      const tes = new EventSource(`/api/jobs/${job_id}/events`);
+      tes.onmessage = async (e) => {
+        const ev = JSON.parse(e.data);
+        if (ev.type === "page") $("testStatus").textContent = `page ${ev.page} ${ev.status} (~$${ev.usd.toFixed(2)})`;
+        if (ev.type === "error") $("testStatus").textContent = "Error: " + ev.message;
+        if (ev.type === "_end") {
+          tes.close();
+          $("testBtn").disabled = false;
+          try {
+            const pr = await fetch(`/api/page/${estState.slug}/${n}`);
+            if (pr.ok) {
+              $("testOut").textContent = (await pr.json()).latex;
+              $("testOut").classList.remove("hidden");
+              $("testStatus").textContent = `page ${n} converted — review below`;
+            }
+          } catch (_) { /* status already shown */ }
+          loadLibrary();
+        }
+      };
+      tes.onerror = () => { tes.close(); $("testBtn").disabled = false; };
+    })
+    .catch(() => { $("testStatus").textContent = "Could not start the test."; $("testBtn").disabled = false; });
+}
 
 async function loadLibrary() {
   const r = await fetch("/api/library");
@@ -198,13 +308,12 @@ function renderItem(it) {
     <div class="mini"><i style="width:${pct}%"></i></div>
     <div class="item-meta"><span>${it.done}/${it.total} pages</span>${review}</div>
     <div class="item-actions">
-      <button class="sm act" data-src="${it.name}" data-dry="1">Estimate</button>
-      <button class="sm act primary" data-src="${it.name}" data-dry="0">${convertLabel}</button>
+      <button class="sm est" data-src="${it.name}">Estimate</button>
+      <button class="sm act primary" data-src="${it.name}">${convertLabel}</button>
       ${downloads}
     </div>`;
-  el.querySelectorAll("button.act").forEach((b) => {
-    b.onclick = () => start(b.dataset.dry === "1", b.dataset.src);
-  });
+  el.querySelector("button.est").onclick = () => openEstimate(it.name);
+  el.querySelector("button.act").onclick = () => start(false, it.name);
   return el;
 }
 
@@ -232,7 +341,7 @@ function logLine(text, cls) {
 
 function setBusy(busy) {
   running = busy;
-  document.querySelectorAll("button.act").forEach((b) => (b.disabled = busy));
+  document.querySelectorAll("button.act, button.est").forEach((b) => (b.disabled = busy));
 }
 
 async function start(dryRun, source) {
@@ -307,6 +416,7 @@ function handle(ev) {
   }
 }
 
+loadInfo();
 loadLibrary();
 </script>
 </body>
