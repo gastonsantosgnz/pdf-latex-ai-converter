@@ -256,13 +256,33 @@ async function openEstimate(source) {
       row.classList.add("sel");
     };
   });
-  $("testBtn").onclick = () => runTest(source, parseInt($("testPage").value || "1", 10));
+  $("testBtn").onclick = () => runTest(source, clampPage());
   $("estConvert").onclick = () => { closeEstimate(); start(false, source); };
+  // Live source-page preview: update the image as the page number changes.
+  let previewTimer = null;
+  $("testPage").oninput = () => {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => showPagePreview(source, clampPage()), 220);
+  };
+  showPagePreview(source, 1);
   $("estimateModal").classList.remove("hidden");
+}
+
+function clampPage() {
+  const n = parseInt($("testPage").value || "1", 10);
+  return Math.min(Math.max(isNaN(n) ? 1 : n, 1), estState.total || 1);
+}
+
+function showPagePreview(source, n) {
+  $("testImg").src = `/api/render?source=${encodeURIComponent(source)}&page=${n}`;
+  $("testOut").textContent = 'Click "Test page" to convert this page and see its LaTeX.';
+  $("testStatus").textContent = `previewing page ${n}`;
+  $("testResult").classList.remove("hidden");
 }
 
 function runTest(source, n) {
   $("testBtn").disabled = true;
+  $("testPage").disabled = true;
   $("testStatus").textContent = `converting page ${n}…`;
   // Show the source page image right away (rendering is offline); LaTeX fills in when done.
   $("testImg").src = `/api/render?source=${encodeURIComponent(source)}&page=${n}`;
@@ -285,7 +305,7 @@ function runTest(source, n) {
         if (ev.type === "error") $("testStatus").textContent = "Error: " + ev.message;
         if (ev.type === "_end") {
           tes.close();
-          $("testBtn").disabled = false;
+          $("testBtn").disabled = false; $("testPage").disabled = false;
           try {
             const pr = await fetch(`/api/page/${estState.slug}/${n}`);
             if (pr.ok) {
@@ -296,9 +316,9 @@ function runTest(source, n) {
           loadLibrary();
         }
       };
-      tes.onerror = () => { tes.close(); $("testBtn").disabled = false; };
+      tes.onerror = () => { tes.close(); $("testBtn").disabled = false; $("testPage").disabled = false; };
     })
-    .catch(() => { $("testStatus").textContent = "Could not start the test."; $("testBtn").disabled = false; });
+    .catch(() => { $("testStatus").textContent = "Could not start the test."; $("testBtn").disabled = false; $("testPage").disabled = false; });
 }
 
 async function loadLibrary() {
