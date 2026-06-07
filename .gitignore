@@ -1,0 +1,44 @@
+# --- Secrets ---
+.env
+
+# --- Generated output (page images, .tex, logs, compiled PDFs) ---
+/output/*
+!/output/.gitkeep
+
+# --- User source PDFs (keep folder, ignore content) ---
+/sources/*
+!/sources/.gitkeep
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.venv-311/
+
+# --- LaTeX aux files ---
+*.aux
+*.log
+*.out
+*.toc
+*.idx
+*.ind
+*.ilg
+*.bbl
+*.bcf
+*.blg
+*.run.xml
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

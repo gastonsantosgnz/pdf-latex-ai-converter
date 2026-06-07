@@ -1,0 +1,10 @@
+{
+  "title": "My Mathematics Book",
+  "subtitle": "LaTeX edition",
+  "chapters": [
+    { "start_page": 1,  "slug": "numbers-and-operations", "title": "1. Numbers and operations" },
+    { "start_page": 52, "slug": "magnitudes",             "title": "2. Magnitudes and real numbers" },
+    { "start_page": 72, "slug": "sequences",              "title": "3. Sequences and series" },
+    { "start_page": 90, "slug": "probability-statistics",  "title": "4. Probability and statistics" }
+  ]
+}

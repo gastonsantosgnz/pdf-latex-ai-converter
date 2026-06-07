@@ -1,0 +1,83 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,english]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,calc,positioning,decorations.pathreplacing,patterns,babel}
+\usepackage{graphicx}
+% Missing external images become draft boxes instead of breaking the build.
+% Remove this line once you add the actual image files.
+\setkeys{Gin}{draft}
+\usepackage{multicol}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{geometry}
+\geometry{margin=2.2cm}
+\usepackage{titlesec}
+\usepackage{titletoc}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=black,
+  pdftitle={@@TITLE@@}
+}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.35em plus 0.15em minus 0.08em}
+
+\titleformat{\section}[block]
+  {\normalfont\large\bfseries}{\thesection}{0pt}{}[{\titlerule[0.4pt]}]
+\titlespacing{\section}{0pt}{1.4em}{0.6em}
+
+\titleformat{\subsection}[block]
+  {\normalfont\normalsize\bfseries\itshape}{\thesubsection}{0pt}{}
+\titlespacing{\subsection}{0pt}{1em}{0.3em}
+
+\titleformat{\subsubsection}[runin]
+  {\normalfont\normalsize\bfseries}{\thesubsubsection}{0pt}{}[.\ ]
+\titlespacing{\subsubsection}{0pt}{0.6em}{0.3em}
+
+% Chapter heading used by the assembler.
+\newcommand{\capitulo}[1]{%
+  \clearpage
+  \phantomsection
+  \addcontentsline{toc}{section}{\protect\numberline{}#1}%
+  \begin{center}
+    \vspace*{0.5em}
+    {\large\bfseries #1}
+    \vspace*{0.3em}
+  \end{center}%
+  \nobreak
+}
+
+\begin{document}
+
+\begin{titlepage}
+  \newgeometry{margin=3cm}
+  \vspace*{3cm}
+  \begin{center}
+    {\fontsize{24}{30}\selectfont\bfseries @@TITLE@@}\\[0.8em]
+    {\fontsize{14}{18}\selectfont\itshape @@SUBTITLE@@}\\[2em]
+    \rule{0.55\textwidth}{0.6pt}\\[1.5em]
+    {\normalsize Generated with pdf-latex-ai-converter}\\
+  \end{center}
+  \vfill
+  \restoregeometry
+\end{titlepage}
+
+\clearpage
+
+\renewcommand{\contentsname}{Contents}
+\setcounter{tocdepth}{2}
+\tableofcontents
+\clearpage
+
+@@BODY@@
+
+\end{document}
