@@ -96,6 +96,22 @@ Diagrams and figures:
 - If a diagram is too complex: % [FIGURE N: short description]
 - Never drop the mathematical content even if the diagram is hard.
 
+Page layout (let the page break naturally - NEVER overflow):
+- NEVER wrap a whole page (several definitions/figures) in ONE tabular, minipage
+  or other box. A box cannot split across pages, so it leaves the page half-empty
+  and dumps everything onto the next page ("Overfull \vbox"). This is the most
+  common layout failure - avoid it.
+- For a "text on the left, figure on the right" layout, make EACH item its own
+  small unit so LaTeX can break between items. Use a separate one-row structure
+  per definition+figure, e.g. for each item:
+  \noindent\begin{minipage}[t]{0.55\textwidth} <text> \end{minipage}\hfill
+  \begin{minipage}[t]{0.4\textwidth}\centering\begin{tikzpicture}...\end{tikzpicture}\end{minipage}
+  followed by \par\vspace{1em} - then the next item. One minipage pair PER item,
+  never one wrapping all of them.
+- Put each standalone figure in its own \begin{center}...\end{center}; let the
+  surrounding text flow normally. It is fine for a dense source page to flow onto
+  a bit more than one page - just never force it into one unbreakable box.
+
 Degrees:
 - In normal text: 5\textdegree{}
 - In math mode: 5^{\circ}

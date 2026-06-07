@@ -25,6 +25,13 @@ def test_base_prompt_has_compile_safety_rules() -> None:
     assert "Extra alignment tab" in BASE_SYSTEM_PROMPT
 
 
+def test_base_prompt_guards_against_page_overflow() -> None:
+    # The layout rule that stops a whole page being trapped in one unbreakable box.
+    assert "Page layout" in BASE_SYSTEM_PROMPT
+    assert "Overfull" in BASE_SYSTEM_PROMPT
+    assert "minipage" in BASE_SYSTEM_PROMPT
+
+
 def test_user_text_is_single_and_robust() -> None:
     text = build_user_text()
     assert "blank-page" in text
