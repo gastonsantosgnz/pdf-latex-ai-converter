@@ -169,8 +169,53 @@ def test_compile_endpoint_surfaces_errors(
 
     monkeypatch.setattr("pdf2latex.compile.compile_pdf", boom)
     r = client.post("/api/compile", params={"slug": "book"})
-    assert r.status_code == 400
-    assert "pdflatex failed" in r.json()["detail"]
+    assert r.status_code == 200
+    body = r.json()
+    assert body["success"] is False
+    assert body["message"] == "pdflatex failed: bad page"
+    assert body["errors"] == []  # no pdflatex log to parse in this stub
+
+
+def test_open_file_endpoint(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pages = tmp_path / "out" / "book" / "pages"
+    pages.mkdir(parents=True)
+    (pages / "page_0005.tex").write_text("x", encoding="utf-8")
+    calls: list = []
+    monkeypatch.setattr("pdf2latex.web.app.subprocess.Popen", lambda cmd: calls.append(cmd))
+
+    r = client.post("/api/open-file", params={"slug": "book", "page": 5})
+    assert r.status_code == 200
+    assert calls and calls[0][-1].endswith("page_0005.tex")
+
+
+def test_open_file_missing_page_is_404(client: TestClient) -> None:
+    assert client.post("/api/open-file", params={"slug": "book", "page": 9}).status_code == 404
+
+
+def test_repair_endpoint_fixes_and_reassembles(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pdf2latex.worker import PageResult
+
+    pages = tmp_path / "out" / "book" / "pages"
+    pages.mkdir(parents=True)
+    (pages / "page_0003.tex").write_text("\\begin{itemize}\\item x", encoding="utf-8")
+
+    monkeypatch.setattr("pdf2latex.worker.make_client", lambda: object())
+    monkeypatch.setattr(
+        "pdf2latex.worker.repair_latex",
+        lambda client, latex, problems, *, model, **_k: PageResult(
+            latex="\\begin{itemize}\\item x\\end{itemize}", total_tokens=5
+        ),
+    )
+
+    r = client.post("/api/repair", params={"slug": "book", "page": 3})
+    assert r.status_code == 200 and r.json()["tokens"] == 5
+    assert "\\end{itemize}" in (pages / "page_0003.tex").read_text(encoding="utf-8")
+    # the monolith was rebuilt with the repaired page
+    assert (tmp_path / "out" / "book" / "book.tex").exists()
 
 
 def test_convert_forwards_start_end(

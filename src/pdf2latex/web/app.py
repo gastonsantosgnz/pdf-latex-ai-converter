@@ -14,6 +14,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -70,25 +71,53 @@ def _needs_review_count(paths: BookPaths) -> int:
     return 0
 
 
-def _offending_pages(paths: BookPaths) -> list[int]:
-    """Map the line numbers in a failed pdflatex log to the source page numbers."""
+def _compile_errors(paths: BookPaths) -> list[dict]:
+    """Parse a failed pdflatex log into ``[{page, error, snippet}]`` (one per page)."""
     log = paths.standalone_tex.with_suffix(".log")
     if not log.exists() or not paths.monolith_tex.exists():
         return []
-    error_lines = {int(n) for n in re.findall(r"l\.(\d+)", log.read_text("utf-8", errors="replace"))}
-    if not error_lines:
-        return []
+    log_lines = log.read_text("utf-8", errors="replace").splitlines()
     markers: list[tuple[int, int]] = []  # (1-based line in monolith, page number)
     for i, line in enumerate(paths.monolith_tex.read_text("utf-8", errors="replace").splitlines(), 1):
         m = re.match(r"% ===== Page (\d+) =====", line.strip())
         if m:
             markers.append((i, int(m.group(1))))
-    pages: set[int] = set()
-    for ln in error_lines:
-        page = next((pg for mi, pg in reversed(markers) if mi <= ln), None)
-        if page is not None:
-            pages.add(page)
-    return sorted(pages)
+
+    def page_of(line_no: int) -> int | None:
+        return next((pg for mi, pg in reversed(markers) if mi <= line_no), None)
+
+    by_page: dict[int, dict] = {}
+    for i, line in enumerate(log_lines):
+        if not line.startswith("! "):
+            continue
+        message = line[2:].strip()
+        for j in range(i + 1, min(i + 8, len(log_lines))):
+            m = re.match(r"l\.(\d+)(.*)", log_lines[j])
+            if not m:
+                continue
+            page = page_of(int(m.group(1)))
+            if page is None or page in by_page:
+                break
+            tail = log_lines[j + 1].strip() if j + 1 < len(log_lines) else ""
+            by_page[page] = {
+                "page": page,
+                "error": message,
+                "snippet": (m.group(2) + " " + tail).strip()[:120],
+            }
+            break
+    return [by_page[p] for p in sorted(by_page)]
+
+
+def _file_opener() -> list[str]:
+    """Prefer a code editor (Cursor/VS Code), else the OS default app."""
+    for editor in ("cursor", "code"):
+        if shutil.which(editor):
+            return [editor]
+    if sys.platform == "darwin":
+        return ["open"]
+    if sys.platform.startswith("win"):
+        return ["cmd", "/c", "start", ""]
+    return ["xdg-open"]
 
 
 def _result_payload(paths: BookPaths, *, dry_run: bool) -> dict:
@@ -288,17 +317,57 @@ def create_app() -> FastAPI:
             # Lenient: produce a PDF even if a few machine-generated pages have errors.
             pdf = compile_pdf(paths.standalone_tex, halt_on_error=False)
         except SystemExit as exc:
-            pages = _offending_pages(paths)
-            if pages:
-                plist = ", ".join(str(p) for p in pages)
-                detail = (
-                    f"Could not build the PDF: LaTeX errors on page(s) {plist}. "
-                    "Fix or re-test those pages (Estimate -> Test page), then compile again."
-                )
-            else:
-                detail = str(exc)
-            raise HTTPException(status_code=400, detail=detail) from exc
-        return {"slug": slug, "pdf": pdf.name}
+            return {
+                "success": False,
+                "slug": slug,
+                "errors": _compile_errors(paths),
+                "message": str(exc),
+            }
+        return {"success": True, "slug": slug, "pdf": pdf.name}
+
+    @app.post("/api/open-file")
+    def open_file(slug: str, page: int) -> dict:
+        paths = BookPaths.for_source(SOURCES_DIR / f"{slug}.pdf", output_root=OUTPUT_DIR)
+        tex = paths.page_tex(page).resolve()
+        if OUTPUT_DIR.resolve() not in tex.parents:
+            raise HTTPException(status_code=400, detail="invalid path")
+        if not tex.exists():
+            raise HTTPException(status_code=404, detail="page not found")
+        subprocess.Popen([*_file_opener(), str(tex)])  # noqa: S603 - sandboxed local path
+        return {"opened": str(tex)}
+
+    @app.post("/api/repair")
+    def repair_page(slug: str, page: int, model: str = "gpt-4o") -> dict:
+        from ..assemble import assemble_monolith, write_standalone
+        from ..worker import make_client, repair_latex
+
+        paths = BookPaths.for_source(SOURCES_DIR / f"{slug}.pdf", output_root=OUTPUT_DIR)
+        tex = paths.page_tex(page)
+        if not tex.exists():
+            raise HTTPException(status_code=404, detail="page not found")
+        latex = tex.read_text("utf-8", errors="replace")
+        errors = {e["page"]: e["error"] for e in _compile_errors(paths)}
+        problem = errors.get(page, "This page fails to compile in LaTeX.")
+        try:
+            client = make_client()
+            result = repair_latex(
+                client,
+                latex,
+                [
+                    f"LaTeX compile error: {problem}. Fix the page so it compiles "
+                    "(common causes: a malformed table/array, math outside math mode, "
+                    "or an unbalanced \\left/\\right)."
+                ],
+                model=model,
+            )
+        except SystemExit as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - surface API errors to the client
+            raise HTTPException(status_code=502, detail=f"AI repair failed: {exc}") from exc
+        tex.write_text(result.latex, encoding="utf-8")
+        assemble_monolith(paths)
+        write_standalone(paths)
+        return {"slug": slug, "page": page, "tokens": result.total_tokens}
 
     @app.get("/api/library")
     def library() -> dict:

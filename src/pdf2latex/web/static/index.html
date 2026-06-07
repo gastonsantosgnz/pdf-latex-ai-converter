@@ -69,6 +69,14 @@
     border-radius: 8px; padding: 10px 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #c7ced9; }
   .log .err { color: var(--err); } .log .warn { color: var(--warn); } .log .ok { color: var(--ok); }
   .log .skip { color: var(--muted); }
+  .report { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .rep-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); flex-wrap: wrap; margin-bottom: 2px; }
+  .rep-row { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #12151c; }
+  .rep-head { font-size: 13px; }
+  .rep-head b { color: var(--ink); }
+  .rep-snip { font: 12px ui-monospace, Menlo, monospace; color: var(--muted); margin: 6px 0 0; word-break: break-all; }
+  .rep-actions { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
+  .rep-done { color: var(--ok); font-size: 12px; }
   .hidden { display: none !important; }  /* utility: must beat .modal's display:flex */
   .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -149,6 +157,7 @@
     <div class="bar" id="bar"><i id="barFill"></i></div>
     <div class="status" style="margin-top:8px"><span id="timer" class="muted"></span><span></span></div>
     <div class="log" id="log"></div>
+    <div class="report hidden" id="compileReport"></div>
   </div>
 
   <div id="helpModal" class="modal hidden">
@@ -461,19 +470,23 @@ async function compileBook(slug, name) {
   $("progressCard").classList.remove("hidden");
   $("progressTitle").textContent = "Compiling PDF — " + name;
   $("log").innerHTML = ""; $("tally").textContent = ""; $("timer").textContent = "";
+  $("compileReport").innerHTML = ""; $("compileReport").classList.add("hidden");
   $("statusText").textContent = "Running LaTeX… this can take a minute";
   $("bar").classList.add("busy"); $("barFill").style.width = "100%";
   logLine("Compiling " + name + " to PDF…");
   try {
     const r = await fetch("/api/compile?slug=" + encodeURIComponent(slug), { method: "POST" });
-    if (r.ok) {
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.success) {
       $("statusText").textContent = "PDF ready";
-      logLine("PDF compiled. The PDF download is now available on the row below.", "ok");
+      logLine("PDF compiled. The PDF download is now on the row below.", "ok");
       await loadLibrary();
+    } else if (r.ok && data.success === false) {
+      $("statusText").textContent = `Compile failed — ${data.errors.length} page(s) to fix`;
+      renderCompileReport(slug, name, data.errors, data.message);
     } else {
-      const err = await r.json().catch(() => ({}));
       $("statusText").textContent = "Compile failed";
-      logLine(String(err.detail || ("Compile failed (" + r.status + ")")), "err");
+      logLine(String(data.detail || ("Compile failed (" + r.status + ")")), "err");
     }
   } catch (e) {
     $("statusText").textContent = "Compile error";
@@ -481,6 +494,98 @@ async function compileBook(slug, name) {
   }
   $("bar").classList.remove("busy");
   setBusy(false);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderCompileReport(slug, name, errors, message) {
+  const box = $("compileReport");
+  box.classList.remove("hidden");
+  if (!errors || !errors.length) {
+    box.innerHTML = `<div class="rep-row" style="color:var(--err)">${escapeHtml(message || "Compile failed — is a LaTeX engine installed?")}</div>`;
+    return;
+  }
+  const rows = errors.map((e) => `
+    <div class="rep-row" data-page="${e.page}">
+      <div class="rep-head"><b>Page ${e.page}</b> — ${escapeHtml(e.error)}</div>
+      ${e.snippet ? `<div class="rep-snip">…${escapeHtml(e.snippet)}</div>` : ""}
+      <div class="rep-actions">
+        <button class="sm rep-open" type="button">Open .tex</button>
+        <button class="sm rep-copy" type="button">Copy AI prompt</button>
+        <button class="sm rep-fix" type="button">Fix with AI</button>
+      </div>
+    </div>`).join("");
+  box.innerHTML = `
+    <div class="rep-top">
+      <span>${errors.length} page(s) with LaTeX errors blocking the PDF.</span>
+      <button class="sm primary" id="fixAll" type="button">Fix all with AI, then compile</button>
+    </div>${rows}`;
+  $("fixAll").onclick = () => fixAll(slug, name, errors.map((e) => e.page));
+  for (const row of box.querySelectorAll(".rep-row[data-page]")) {
+    const page = parseInt(row.dataset.page, 10);
+    const err = (errors.find((e) => e.page === page) || {}).error || "";
+    row.querySelector(".rep-open").onclick = () => openTex(slug, page);
+    row.querySelector(".rep-copy").onclick = (ev) => copyPrompt(slug, page, err, ev.currentTarget);
+    row.querySelector(".rep-fix").onclick = (ev) => fixOne(slug, page, ev.currentTarget);
+  }
+}
+
+async function openTex(slug, page) {
+  try { await fetch(`/api/open-file?slug=${encodeURIComponent(slug)}&page=${page}`, { method: "POST" }); }
+  catch (e) { /* nothing to do */ }
+}
+
+async function copyPrompt(slug, page, error, btn) {
+  try {
+    const d = await (await fetch(`/api/page/${slug}/${page}`)).json();
+    const prompt =
+      "Fix this LaTeX so it compiles with pdflatex. " +
+      (error ? `The compiler error is: "${error}". ` : "") +
+      "Return ONLY the corrected LaTeX for the page (no preamble, no \\documentclass, no code fences).\n\n" +
+      d.latex;
+    await navigator.clipboard.writeText(prompt);
+    const old = btn.textContent; btn.textContent = "Copied!";
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  } catch (e) { alert("Could not copy the prompt (clipboard blocked?)."); }
+}
+
+async function fixOne(slug, page, btn) {
+  btn.disabled = true; const old = btn.textContent; btn.textContent = "Fixing…";
+  try {
+    const r = await fetch(`/api/repair?slug=${encodeURIComponent(slug)}&page=${page}&model=${encodeURIComponent($("model").value)}`, { method: "POST" });
+    if (r.ok) {
+      btn.closest(".rep-row").querySelector(".rep-actions").innerHTML =
+        '<span class="rep-done">Repaired — compile again to check.</span>';
+    } else {
+      const e = await r.json().catch(() => ({}));
+      btn.textContent = old; btn.disabled = false;
+      alert("AI repair failed: " + (e.detail || r.status));
+    }
+  } catch (e) { btn.textContent = old; btn.disabled = false; alert("AI repair error: " + e); }
+}
+
+async function fixAll(slug, name, pages) {
+  if (running) return;
+  setBusy(true);
+  $("compileReport").innerHTML = ""; $("log").innerHTML = "";
+  $("statusText").textContent = `Repairing ${pages.length} page(s) with AI…`;
+  $("bar").classList.add("busy"); $("barFill").style.width = "100%";
+  let ok = 0;
+  for (const page of pages) {
+    logLine(`Repairing page ${page}…`);
+    try {
+      const r = await fetch(`/api/repair?slug=${encodeURIComponent(slug)}&page=${page}&model=${encodeURIComponent($("model").value)}`, { method: "POST" });
+      if (r.ok) { ok++; logLine(`page ${page}: repaired`, "ok"); }
+      else { const e = await r.json().catch(() => ({})); logLine(`page ${page}: ${e.detail || "repair failed"}`, "err"); }
+    } catch (e) { logLine(`page ${page}: ${e}`, "err"); }
+  }
+  $("bar").classList.remove("busy");
+  setBusy(false);
+  logLine(`Repaired ${ok}/${pages.length}. Re-compiling…`, "warn");
+  await compileBook(slug, name);
 }
 
 async function start(dryRun, source) {
