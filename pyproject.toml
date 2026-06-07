@@ -9,6 +9,35 @@ description = "Convert math-heavy PDFs to LaTeX page by page with a vision LLM (
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+authors = [{ name = "Gaston Santos" }]
+keywords = [
+    "latex",
+    "pdf",
+    "ocr",
+    "llm",
+    "openai",
+    "gpt-4o",
+    "vision",
+    "math",
+    "mathematics",
+    "document-conversion",
+    "tikz",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Text Processing :: Markup :: LaTeX",
+    "Topic :: Utilities",
+]
 dependencies = [
     "openai>=1.0.0",
     "pypdf>=4.0.0",
@@ -26,6 +55,12 @@ dev = [
 
 [project.scripts]
 pdf2latex = "pdf2latex.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/gastonsantosgnz/pdf-latex-ai-converter"
+Repository = "https://github.com/gastonsantosgnz/pdf-latex-ai-converter"
+Issues = "https://github.com/gastonsantosgnz/pdf-latex-ai-converter/issues"
+Changelog = "https://github.com/gastonsantosgnz/pdf-latex-ai-converter/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

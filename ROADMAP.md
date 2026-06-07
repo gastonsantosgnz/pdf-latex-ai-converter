@@ -50,12 +50,12 @@ safe, without spending a cent on the OpenAI API.
 
 ---
 
-## 3. Open-source community files & metadata — `planned`
+## 3. Open-source community files & metadata — `in progress`
 
 **Goal.** Make the project welcoming and credible to outside contributors.
 
 **Deliverables.**
-- `CONTRIBUTING.md` (dev setup, lint/test commands, commit conventions).
+- `CONTRIBUTING.md` (dev setup, lint/test commands, commit conventions). _Pending._
 - `CODE_OF_CONDUCT.md` (Contributor Covenant).
 - `CHANGELOG.md` (Keep a Changelog format, semver).
 - `.github/ISSUE_TEMPLATE/` (bug report + feature request) and
@@ -70,10 +70,10 @@ safe, without spending a cent on the OpenAI API.
 
 ---
 
-## 4. Cost estimation & `--dry-run` — `planned`
+## 4. Cost preflight, `--dry-run` and live progress — `planned`
 
 **Goal.** No surprises on the OpenAI bill. Let users preview scope and cost
-before committing to a long conversion.
+before committing to a long conversion, and follow progress while it runs.
 
 **Deliverables.**
 - A pre-flight summary for `convert`: page count in range, model, profile and an
@@ -82,12 +82,61 @@ before committing to a long conversion.
 - A `--dry-run` flag that renders/validates pages and prints the plan **without**
   calling the API.
 - A `--yes/-y` flag to skip the confirmation prompt in automated runs.
+- A live progress bar with a running token/cost tally (the data is already captured
+  per page in the `*.usage.txt` files), plus a final summary on completion.
 - Running token/cost accounting written to `log.txt` and printed on completion
   (already partially captured via `*.usage.txt`).
 
 **Acceptance criteria.**
 - `convert --dry-run` performs zero API calls and exits 0.
 - The estimate is documented as approximate and easy to update when prices change.
+- The progress output degrades gracefully in non-interactive runs (CI, log files).
+
+---
+
+## 5. Parallel page conversion with rate-limit awareness — `planned`
+
+**Goal.** Cut wall-clock time for large books from hours to minutes by converting
+independent pages concurrently, without tripping the provider's rate limits.
+
+**Deliverables.**
+- A bounded `ThreadPoolExecutor` in `convert_pdf` (`--workers N`, sensible default)
+  that converts pages concurrently; the job stays resumable (already-converted
+  pages are still skipped).
+- A token-bucket / rate limiter replacing the fixed `time.sleep(1.0)`, tuned to the
+  account tier (configurable RPM/TPM) and reusing the existing exponential backoff
+  in `worker._create_with_backoff`.
+- Thread-safe logging (`_log` guarded by a lock) and correctly aggregated OK/FAIL
+  counters.
+- `--workers 1` preserves today's strictly sequential behaviour as a fallback.
+
+**Acceptance criteria.**
+- A multi-page conversion (LLM mocked) yields the same output as the sequential
+  path, with no interleaved or corrupted log lines.
+- `--workers 1` reproduces the current behaviour byte-for-byte.
+
+---
+
+## 6. LaTeX validation & auto-repair pass — `planned`
+
+**Goal.** Reduce manual cleanup to near zero by catching and fixing broken LaTeX
+per page, and by telling the user exactly which pages still need a human.
+
+**Deliverables.**
+- A cheap, offline validator run on every page: balanced braces, matched
+  `\begin{...}`/`\end{...}`, and unescaped `$` outside math — no API or LaTeX
+  installation required.
+- An optional deep check: compile each page in isolation (or run `chktex`), gated
+  behind a flag so the default stays dependency-light.
+- An auto-repair round-trip: on a validation/compile error, resend the page LaTeX
+  plus the error message to the model asking for a minimal fix (bounded retries).
+- A `needs-review.txt` report listing the pages that still fail after repair, with
+  the specific reason — instead of surfacing errors only at final compile time.
+
+**Acceptance criteria.**
+- A known-bad page (mismatched `tabular`, unclosed `itemize`, unescaped `$`) is
+  flagged by the offline validator (covered by the existing regression fixtures).
+- The auto-repair step performs zero API calls when every page already validates.
 
 ---
 
@@ -95,5 +144,3 @@ before committing to a long conversion.
 
 - Multi-provider backends (OpenAI-compatible `base_url`, Anthropic, Gemini).
 - Structured `logging` with `--verbose` instead of `print`.
-- Parallel page conversion with a bounded worker pool and rate-limit awareness.
-- Optional post-processing pass that auto-fixes common LaTeX issues before build.

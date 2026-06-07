@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and existing issues
+    url: https://github.com/gastonsantosgnz/pdf-latex-ai-converter/issues
+    about: Please search existing issues before opening a new one.
