@@ -339,6 +339,7 @@ def convert_pdf(
         for page_num in range(start_page, end_page + 1):
             if page_num not in pending_set:
                 _log(paths, f"SKIP page {page_num} (already converted)", console=not quiet)
+                paths.pages_dir.joinpath(f"page_{page_num:04d}.err.txt").unlink(missing_ok=True)
                 ok += 1
                 bar.update(advance=1, note=_tally_note())
                 _emit_page(page_num, "skip")

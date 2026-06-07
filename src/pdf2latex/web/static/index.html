@@ -41,7 +41,8 @@
   .seg button { flex: 1; border: none; border-right: 1px solid var(--line); border-radius: 0; background: #10131a; padding: 9px 0; font-size: 14px; color: var(--ink); cursor: pointer; }
   .seg button:last-child { border-right: none; }
   .seg button.sel { background: var(--accent); color: #0b1020; font-weight: 600; }
-  .summary { color: var(--muted); font-size: 13px; margin: -4px 0 14px; }
+  .summary { color: var(--muted); font-size: 13px; margin: -4px 0 4px; }
+  .outpath { color: var(--muted); font-size: 12px; margin: 0 0 14px; word-break: break-all; }
   .lib { display: flex; flex-direction: column; gap: 8px; }
   .item { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #12151c; }
   .item-top { display: flex; align-items: center; gap: 10px; }
@@ -65,6 +66,7 @@
   .log { margin-top: 12px; max-height: 200px; overflow: auto; background: #0c0e13; border: 1px solid var(--line);
     border-radius: 8px; padding: 10px 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #c7ced9; }
   .log .err { color: var(--err); } .log .warn { color: var(--warn); } .log .ok { color: var(--ok); }
+  .log .skip { color: var(--muted); }
   .hidden { display: none !important; }  /* utility: must beat .modal's display:flex */
   .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -109,10 +111,12 @@
       <h2>Library</h2>
       <div class="file">
         <input type="file" id="upload" accept="application/pdf" multiple />
+        <button id="openFolder" type="button" class="sm">Open folder</button>
         <button id="refresh" type="button" class="sm">Refresh</button>
       </div>
     </div>
     <div class="summary" id="summary"></div>
+    <div class="outpath" id="outpath"></div>
     <div class="lib" id="lib"></div>
   </div>
 
@@ -181,12 +185,16 @@
 const $ = (id) => document.getElementById(id);
 let jobId = null, es = null, running = false, estState = {}, selectedWorkers = 4;
 let convStart = 0, convTimer = null, lastEta = "", activeSource = "";
+let skipCount = 0, skipLineEl = null;
 const LABEL = { pending: "Pending", in_progress: "In progress", done: "Done" };
 const DL = {
-  monolith: { label: "LaTeX (.tex)", tip: "All converted pages assembled into one .tex file (raw)" },
-  standalone: { label: "Compilable (.tex)", tip: "Ready-to-compile document (preamble + title + content) -> PDF" },
-  "needs-review": { label: "needs-review", tip: "Pages that still need a human check" },
+  standalone: { label: "Document (.tex)", tip: "Complete document, ready to compile to PDF (recommended)" },
+  monolith: { label: "Pages only (.tex)", tip: "Just the converted page content, without a preamble (advanced)" },
+  "needs-review": { label: "Needs review", tip: "Pages that may still need a human check" },
 };
+const DL_ORDER = ["standalone", "monolith", "needs-review"];
+const STATUS_LABEL = { ok: "ok", skip: "already done", repaired: "repaired", err: "failed" };
+const STATUS_CLASS = { ok: "ok", skip: "skip", repaired: "ok", err: "err" };
 
 function fmtTime(s) {
   s = Math.max(0, Math.round(s));
@@ -228,8 +236,16 @@ async function loadInfo() {
       if (m === i.default_model) o.selected = true;
       sel.appendChild(o);
     }
+    $("outpath").textContent = "Saving to " + i.output_dir;
   } catch (e) { /* leave the dropdown empty on failure */ }
 }
+
+async function revealFolder(slug) {
+  try {
+    await fetch("/api/reveal" + (slug ? `?slug=${encodeURIComponent(slug)}` : ""), { method: "POST" });
+  } catch (e) { /* nothing to do if it cannot open */ }
+}
+$("openFolder").onclick = () => revealFolder();
 
 async function showHelp() {
   try {
@@ -375,10 +391,11 @@ function renderItem(it) {
   el.dataset.src = it.name;
   const convertLabel = it.status === "in_progress" ? "Resume" : it.status === "done" ? "Reconvert" : "Convert";
   const review = it.needs_review ? `<span class="chip">${it.needs_review} need review</span>` : "";
-  const downloads = (it.files || [])
-    .filter((f) => DL[f.kind])
-    .map((f) => `<a href="/api/output/${it.slug}/${f.kind}" title="${DL[f.kind].tip}">${DL[f.kind].label}</a>`)
+  const present = new Set((it.files || []).map((f) => f.kind));
+  const downloads = DL_ORDER.filter((k) => present.has(k))
+    .map((k) => `<a href="/api/output/${it.slug}/${k}" title="${DL[k].tip}">${DL[k].label}</a>`)
     .join("");
+  const openBtn = present.size ? '<button class="sm open" type="button">Open folder</button>' : "";
   el.innerHTML = `
     <div class="item-top">
       <span class="item-name">${it.name}</span>
@@ -389,10 +406,12 @@ function renderItem(it) {
     <div class="item-actions">
       <button class="sm est" data-src="${it.name}">Estimate</button>
       <button class="sm act primary" data-src="${it.name}">${convertLabel}</button>
-      ${downloads}
+      ${downloads}${openBtn}
     </div>`;
   el.querySelector("button.est").onclick = () => openEstimate(it.name);
   el.querySelector("button.act").onclick = () => start(false, it.name);
+  const ob = el.querySelector("button.open");
+  if (ob) ob.onclick = () => revealFolder(it.slug);
   return el;
 }
 
@@ -436,6 +455,7 @@ async function start(dryRun, source) {
   $("progressCard").classList.remove("hidden");
   $("progressTitle").textContent = (dryRun ? "Estimate — " : "Converting — ") + source;
   $("log").innerHTML = ""; $("barFill").style.width = "0%"; $("tally").textContent = "";
+  skipCount = 0; skipLineEl = null;
   $("statusText").textContent = dryRun ? "Dry run…" : "Converting…";
 
   const fd = new FormData();
@@ -469,10 +489,22 @@ function handle(ev) {
     }
     case "page": {
       const pct = ev.total ? Math.round((ev.done / ev.total) * 100) : 100;
+      const label = STATUS_LABEL[ev.status] || ev.status;
       $("barFill").style.width = pct + "%";
-      $("statusText").textContent = `Page ${ev.page} ${ev.status} — ${ev.done}/${ev.total}`;
+      $("statusText").textContent = `Page ${ev.page} ${label} — ${ev.done}/${ev.total}`;
       $("tally").textContent = `${ev.tokens.toLocaleString()} tok | ~$${ev.usd.toFixed(2)}`;
-      logLine(`page ${ev.page}: ${ev.status}`, ev.status === "err" ? "err" : ev.status === "skip" ? "warn" : "ok");
+      if (ev.status === "skip") {
+        // Collapse the flood of already-done pages into one running line.
+        skipCount++;
+        if (!skipLineEl) {
+          skipLineEl = document.createElement("div");
+          skipLineEl.className = "skip";
+          $("log").appendChild(skipLineEl);
+        }
+        skipLineEl.textContent = `${skipCount} page(s) already done — skipped`;
+      } else {
+        logLine(`page ${ev.page}: ${label}`, STATUS_CLASS[ev.status] || "ok");
+      }
       updateEta(ev.done, ev.total);
       updateTimer();
       updateRow(ev.done, ev.total, pct);  // keep the Library row in sync, live

@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import os
 import queue
+import subprocess
+import sys
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -232,6 +234,25 @@ def create_app() -> FastAPI:
     def list_pdfs() -> dict:
         SOURCES_DIR.mkdir(parents=True, exist_ok=True)
         return {"pdfs": sorted(p.name for p in SOURCES_DIR.glob("*.pdf"))}
+
+    @app.post("/api/reveal")
+    def reveal(slug: str | None = None) -> dict:
+        """Open the output folder (or a book's subfolder) in the OS file manager."""
+        root = OUTPUT_DIR.resolve()
+        target = (root / slug).resolve() if slug else root
+        if target != root and root not in target.parents:
+            raise HTTPException(status_code=400, detail="invalid path")
+        if not target.exists():
+            target = root
+        root.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "darwin":
+            cmd = ["open", str(target)]
+        elif sys.platform.startswith("win"):
+            cmd = ["explorer", str(target)]
+        else:
+            cmd = ["xdg-open", str(target)]
+        subprocess.Popen(cmd)  # noqa: S603 - local single-user tool, path is sandboxed
+        return {"opened": str(target)}
 
     @app.get("/api/library")
     def library() -> dict:

@@ -171,6 +171,23 @@ def test_upload_rejects_non_pdf(client: TestClient) -> None:
     assert r.status_code == 400
 
 
+def test_reveal_opens_output_dir(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list = []
+    monkeypatch.setattr("pdf2latex.web.app.subprocess.Popen", lambda cmd: calls.append(cmd))
+    r = client.post("/api/reveal")
+    assert r.status_code == 200
+    assert calls and calls[0][-1] == str((tmp_path / "out").resolve())
+
+
+def test_reveal_rejects_path_traversal(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("pdf2latex.web.app.subprocess.Popen", lambda cmd: None)
+    assert client.post("/api/reveal", params={"slug": "../../etc"}).status_code == 400
+
+
 def test_convert_unknown_source_is_400(client: TestClient) -> None:
     r = client.post("/api/convert", data={"source": "does-not-exist.pdf"})
     assert r.status_code == 400
