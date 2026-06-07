@@ -61,7 +61,7 @@
   .log { margin-top: 12px; max-height: 200px; overflow: auto; background: #0c0e13; border: 1px solid var(--line);
     border-radius: 8px; padding: 10px 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #c7ced9; }
   .log .err { color: var(--err); } .log .warn { color: var(--warn); } .log .ok { color: var(--ok); }
-  .hidden { display: none; }
+  .hidden { display: none !important; }  /* utility: must beat .modal's display:flex */
   .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 10; }
@@ -125,14 +125,14 @@
       <div class="modal-head"><h2>How to use</h2><button id="helpClose" type="button" class="sm">Close</button></div>
       <div class="info" id="helpInfo"></div>
       <div class="help-body">
-        <h3>1. One-time setup (in your terminal)</h3>
+        <h3>0. One-time setup (in your terminal)</h3>
         <ul>
           <li>Put your key in a <code>.env</code> file at the project root: <code>OPENAI_API_KEY=sk-...</code> (optional default model: <code>PDF2LATEX_MODEL=gpt-4o</code>).</li>
           <li>Choose where results are saved (outside the repo): <code>export PDF2LATEX_OUTPUT_DIR=~/Documents/your-folder</code>, then start with <code>pdf2latex serve</code>. Restart serve after changing it.</li>
         </ul>
-        <h3>2. Add PDFs</h3>
+        <h3>1. Add PDFs</h3>
         <ul><li>Upload one with <em>Choose File</em>, or drop PDFs into the sources folder shown above and click <em>Refresh</em>.</li></ul>
-        <h3>3. Convert and track</h3>
+        <h3>2. Convert and track</h3>
         <ol>
           <li>Set the options (model, <code>dense</code> profile for textbooks, workers).</li>
           <li>Click <em>Estimate</em> for a free cost preview (no API calls).</li>
