@@ -110,6 +110,31 @@ def test_convert_pdf_happy_path(
     assert paths.page_tex(1).read_text(encoding="utf-8") == "LATEX"
 
 
+def test_convert_pdf_claude_engine_skips_openai(
+    tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf = _make_pdf(tmp_path / "book.pdf", pages=2)
+
+    def no_openai():
+        raise AssertionError("make_client (OpenAI) must not be called for the claude engine")
+
+    monkeypatch.setattr(converter, "make_client", no_openai)
+    monkeypatch.setattr(converter, "render_page_to_file", lambda *a, **k: None)
+    calls: list = []
+
+    def fake_claude(png, *, system_prompt, user_text, model=None):
+        calls.append(png)
+        return PageResult(latex="CLAUDE", total_tokens=1)
+
+    monkeypatch.setattr("pdf2latex.claude_engine.convert_image_with_claude", fake_claude)
+    monkeypatch.setattr("pdf2latex.claude_engine.claude_model", lambda: None)
+
+    paths = convert_pdf(pdf, model="gpt-5", engine="claude-code", assume_yes=True)
+
+    assert len(calls) == 2  # both pages went through the Claude engine
+    assert paths.page_tex(1).read_text(encoding="utf-8") == "CLAUDE"
+
+
 def test_convert_pdf_stops_when_requested(
     tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

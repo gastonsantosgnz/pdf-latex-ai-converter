@@ -158,8 +158,16 @@
 
   <div class="card">
     <h2 style="margin-bottom:14px">Conversion options</h2>
+    <div class="row" style="margin-bottom:12px">
+      <div><label>Engine</label>
+        <div class="seg" id="engineSeg">
+          <button type="button" data-engine="openai" class="sel">OpenAI API</button>
+          <button type="button" data-engine="claude-code" id="engineClaude">Claude Code</button>
+        </div>
+      </div>
+    </div>
     <div class="row">
-      <div><label>Model</label>
+      <div id="modelField"><label>Model</label>
         <div class="seg" id="modelSeg">
           <button type="button" data-model="gpt-5-mini">Cheaper</button>
           <button type="button" data-model="gpt-5" class="sel">Balanced</button>
@@ -176,6 +184,7 @@
       </div>
     </div>
     <p class="note" id="modelHint" style="margin-top:8px"></p>
+    <p class="note hidden" id="claudeNote" style="margin-top:8px">Uses your Claude Code subscription via the local <code>claude</code> CLI — no OpenAI cost. Slower than the API for big books, and subject to your subscription limits.</p>
     <div class="check" style="margin-top:8px"><input type="checkbox" id="repair" /><label for="repair">Auto-repair invalid pages (extra API calls)</label></div>
     <p class="note">Workers = pages converted at once (faster, more API pressure). Use a row's <em>Estimate</em> to preview cost and test a single page before converting the whole document.</p>
   </div>
@@ -240,6 +249,7 @@
 const $ = (id) => document.getElementById(id);
 let jobId = null, es = null, running = false, estState = {}, selectedWorkers = 4;
 let selectedModel = "gpt-5";
+let selectedEngine = "openai";
 const MODEL_INFO = {
   "gpt-5-mini": "Cheaper — gpt-5-mini. Lowest cost; fine for clean, text-heavy pages.",
   "gpt-5": "Balanced — gpt-5. Strong default for most textbooks (recommended).",
@@ -287,6 +297,11 @@ async function loadInfo() {
   try {
     const i = await (await fetch("/api/info")).json();
     $("outpath").textContent = "Saving to " + i.output_dir;
+    if (!i.claude_available) {
+      const c = $("engineClaude");
+      c.disabled = true;
+      c.title = "Install the `claude` CLI and sign in to use this engine";
+    }
   } catch (e) { /* output path stays blank on failure */ }
 }
 
@@ -778,6 +793,7 @@ async function start(dryRun, source) {
   const fd = new FormData();
   fd.append("source", source);
   fd.append("model", selectedModel);
+  fd.append("engine", selectedEngine);
   fd.append("workers", String(selectedWorkers));
   fd.append("dry_run", dryRun ? "true" : "false");
   fd.append("repair", $("repair").checked ? "true" : "false");
@@ -809,9 +825,13 @@ $("stopBtn").onclick = stopConversion;
 function handle(ev) {
   switch (ev.type) {
     case "preflight": {
-      const warn = ev.known_model ? "" : " (unknown model, priced as fallback)";
-      logLine(`Plan: ${ev.to_convert} to convert of ${ev.in_range} in range (${ev.already} already done), model ${ev.model}, ${ev.workers} workers.`);
-      logLine(`Estimated cost: $${ev.est_low.toFixed(2)} - $${ev.est_high.toFixed(2)}${warn}. Estimate only.`, "warn");
+      logLine(`Plan: ${ev.to_convert} to convert of ${ev.in_range} in range (${ev.already} already done), ${ev.model}, ${ev.workers} workers.`);
+      if (ev.engine === "claude-code") {
+        logLine("Uses your Claude Code subscription — no OpenAI cost.", "warn");
+      } else {
+        const warn = ev.known_model ? "" : " (unknown model, priced as fallback)";
+        logLine(`Estimated cost: $${ev.est_low.toFixed(2)} - $${ev.est_high.toFixed(2)}${warn}. Estimate only.`, "warn");
+      }
       break;
     }
     case "page": {
@@ -888,6 +908,16 @@ function setModel(m) {
 }
 document.querySelectorAll("#modelSeg button").forEach((b) => { b.onclick = () => setModel(b.dataset.model); });
 setModel(selectedModel);
+
+function setEngine(e) {
+  selectedEngine = e;
+  document.querySelectorAll("#engineSeg button").forEach((x) => x.classList.toggle("sel", x.dataset.engine === e));
+  const claude = e === "claude-code";
+  $("modelField").classList.toggle("hidden", claude);  // model tiers are OpenAI-only
+  $("modelHint").classList.toggle("hidden", claude);
+  $("claudeNote").classList.toggle("hidden", !claude);
+}
+document.querySelectorAll("#engineSeg button").forEach((b) => { b.onclick = () => { if (!b.disabled) setEngine(b.dataset.engine); }; });
 
 loadInfo();
 loadLibrary();

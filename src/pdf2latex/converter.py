@@ -28,9 +28,16 @@ from .pricing import (
     load_prices,
 )
 from .progress import ProgressBar
+from .prompts import build_system_prompt, build_user_text
 from .ratelimit import RateLimiter
 from .validate import validate_pages, validate_text, write_needs_review
-from .worker import convert_image_b64, make_client, render_page_to_base64, repair_latex
+from .worker import (
+    convert_image_b64,
+    make_client,
+    render_page_to_base64,
+    render_page_to_file,
+    repair_latex,
+)
 
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_WORKERS = 4
@@ -91,6 +98,7 @@ def _log_preflight(
     end_page: int,
     pending: list[int],
     model: str,
+    engine: str,
     scale: float,
     workers: int,
     rpm: float | None,
@@ -109,6 +117,11 @@ def _log_preflight(
         f"  Range    : {start_page}-{end_page} "
         f"({in_range} in range, {already} already done, {len(pending)} to convert)",
     )
+    if engine == "claude-code":
+        _log(paths, f"  Engine   : Claude Code (your Claude subscription)   Scale: {scale}")
+        _log(paths, f"  Workers  : {max(1, workers)}{rate}")
+        _log(paths, "  Est. cost: $0.00 — uses your Claude subscription, not the OpenAI API")
+        return
     _log(paths, f"  Model    : {model}   Scale: {scale}")
     _log(paths, f"  Workers  : {max(1, workers)}{rate}")
     if pending:
@@ -144,6 +157,7 @@ def convert_pdf(
     source_pdf: Path,
     *,
     model: str,
+    engine: str = "openai",
     max_tokens: int = 16384,
     batch: int | None = None,
     start: int | None = None,
@@ -193,9 +207,10 @@ def convert_pdf(
         total, batch=batch, start=start, end=end, batch_size=batch_size
     )
 
+    engine_label = "Claude Code (subscription)" if engine == "claude-code" else model
     _log(
         paths,
-        f"--- session | PDF: {source_pdf.name} | model: {model} "
+        f"--- session | PDF: {source_pdf.name} | engine: {engine} | model: {engine_label} "
         f"| pages {start_page}-{end_page} of {total} ---",
     )
 
@@ -208,6 +223,7 @@ def convert_pdf(
         end_page=end_page,
         pending=pending,
         model=model,
+        engine=engine,
         scale=scale,
         workers=workers,
         rpm=rpm,
@@ -216,7 +232,11 @@ def convert_pdf(
     )
 
     in_range = end_page - start_page + 1
-    est = estimate_cost(model, len(pending), prices=prices) if pending else None
+    est = (
+        estimate_cost(model, len(pending), prices=prices)
+        if (pending and engine != "claude-code")
+        else None
+    )
     emit(
         {
             "type": "preflight",
@@ -227,7 +247,8 @@ def convert_pdf(
             "in_range": in_range,
             "already": in_range - len(pending),
             "to_convert": len(pending),
-            "model": model,
+            "model": engine_label,
+            "engine": engine,
             "workers": max(1, workers),
             "est_low": est.usd_low if est else 0.0,
             "est_high": est.usd_high if est else 0.0,
@@ -263,13 +284,18 @@ def convert_pdf(
             )
             emit({"type": "aborted", "reason": "non-interactive (pass --yes)"})
             return paths
-        answer = input(f"Proceed converting {len(pending)} page(s) with {model}? [y/N] ")
+        answer = input(f"Proceed converting {len(pending)} page(s) with {engine_label}? [y/N] ")
         if answer.strip().lower() not in {"y", "yes"}:
             _log(paths, "Aborted by user. No API calls made.")
             emit({"type": "aborted", "reason": "declined"})
             return paths
 
-    client = make_client()
+    use_claude = engine == "claude-code"
+    client = None if use_claude else make_client()
+    claude_sys = build_system_prompt() if use_claude else ""
+    claude_usr = build_user_text() if use_claude else ""
+    if use_claude:
+        from .claude_engine import claude_model, convert_image_with_claude
     limiter = RateLimiter(rpm=rpm, tpm=tpm)
     est_tokens = DEFAULT_INPUT_TOKENS_PER_PAGE + DEFAULT_OUTPUT_TOKENS_PER_PAGE
 
@@ -279,16 +305,28 @@ def convert_pdf(
     quiet = bar.enabled  # when the live bar is on, keep per-page lines out of stdout
 
     def _tally_note() -> str:
+        if use_claude:
+            return f"{tot_tokens:,} tok (Claude subscription)"
         usd = cost_for_tokens(model, tot_prompt, tot_completion, prices=prices)
         return f"{tot_tokens:,} tok | ~${usd:,.2f}"
 
     def _convert_one(page_num: int) -> _Outcome:
         """Convert (and optionally auto-repair) one page in a worker thread."""
         if should_stop is not None and should_stop():
-            raise _Cancelled  # a queued page picked up after Stop: don't call the API
+            raise _Cancelled  # a queued page picked up after Stop: don't call the model
         limiter.acquire(est_tokens)
-        img_b64 = render_page_to_base64(str(source_pdf), page_index=page_num - 1, scale=scale)
-        result = convert_image_b64(client, img_b64, model=model, max_tokens=max_tokens)
+        if use_claude:
+            png = paths.pages_dir / f"page_{page_num:04d}.png"
+            try:
+                render_page_to_file(str(source_pdf), page_num - 1, png, scale=scale)
+                result = convert_image_with_claude(
+                    png, system_prompt=claude_sys, user_text=claude_usr, model=claude_model()
+                )
+            finally:
+                png.unlink(missing_ok=True)
+        else:
+            img_b64 = render_page_to_base64(str(source_pdf), page_index=page_num - 1, scale=scale)
+            result = convert_image_b64(client, img_b64, model=model, max_tokens=max_tokens)
         latex = result.latex
         pt, ct, tt = result.prompt_tokens, result.completion_tokens, result.total_tokens
 
@@ -329,7 +367,7 @@ def convert_pdf(
                 "done": bar.done,
                 "total": range_size,
                 "tokens": tot_tokens,
-                "usd": cost_for_tokens(model, tot_prompt, tot_completion, prices=prices),
+                "usd": 0.0 if use_claude else cost_for_tokens(model, tot_prompt, tot_completion, prices=prices),
             }
         )
 
@@ -395,12 +433,13 @@ def convert_pdf(
     report = write_needs_review(paths, review)
     n_review = sum(1 for issues in review.values() if issues)
 
-    actual = cost_for_tokens(model, tot_prompt, tot_completion, prices=prices)
+    actual = 0.0 if use_claude else cost_for_tokens(model, tot_prompt, tot_completion, prices=prices)
+    cost_str = "Claude subscription" if use_claude else f"actual cost ~${actual:,.2f}"
     _log(
         paths,
         f"Done. OK={ok} FAIL={failed} | tokens={tot_tokens:,} "
         f"(prompt={tot_prompt:,}, completion={tot_completion:,}) | "
-        f"actual cost ~${actual:,.2f} | needs-review={n_review} | "
+        f"{cost_str} | needs-review={n_review} | "
         f"assembled -> {paths.monolith_tex.name}",
     )
     if report is not None:

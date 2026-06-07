@@ -142,6 +142,7 @@ class JobManager:
                 workers=params["workers"],
                 start=params.get("start"),
                 end=params.get("end"),
+                engine=params.get("engine", "openai"),
                 dry_run=params["dry_run"],
                 repair=params["repair"],
                 assume_yes=True,
@@ -183,10 +184,13 @@ def create_app() -> FastAPI:
 
         default_model = os.environ.get("PDF2LATEX_MODEL", "gpt-5")
         models = sorted(set(load_prices()) | {default_model})
+        from ..claude_engine import claude_available
+
         return {
             "api_key_set": bool(os.environ.get("OPENAI_API_KEY")),
             "default_model": default_model,
             "models": models,
+            "claude_available": claude_available(),
             "output_dir": str(OUTPUT_DIR),
             "sources_dir": str(SOURCES_DIR),
         }
@@ -440,6 +444,7 @@ def create_app() -> FastAPI:
     def start_convert(
         source: str = Form(...),
         model: str = Form("gpt-5"),
+        engine: str = Form("openai"),
         workers: int = Form(4),
         dry_run: bool = Form(False),
         repair: bool = Form(False),
@@ -454,6 +459,7 @@ def create_app() -> FastAPI:
             {
                 "source": source,
                 "model": model,
+                "engine": engine,
                 "workers": workers,
                 "dry_run": dry_run,
                 "repair": repair,

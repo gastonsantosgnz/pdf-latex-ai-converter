@@ -140,7 +140,7 @@ pdf2latex fix "My Book" --max-rounds 3 --max-tries 2
 | Command | What it does |
 |---|---|
 | `pdf2latex list` | List PDFs in `sources/`. |
-| `pdf2latex convert <pdf>` | Convert pages → `.tex`, then assemble. Flags: `--batch`, `--batch-size`, `--start`, `--end`, `--model`, `--max-tokens`, `--scale`, `--workers`, `--rpm`, `--tpm`, `--repair`, `--repair-retries`, `--title`, `--subtitle`, `--dry-run`, `--yes/-y`. |
+| `pdf2latex convert <pdf>` | Convert pages → `.tex`, then assemble. Flags: `--engine` (`openai`/`claude-code`), `--batch`, `--batch-size`, `--start`, `--end`, `--model`, `--max-tokens`, `--scale`, `--workers`, `--rpm`, `--tpm`, `--repair`, `--repair-retries`, `--title`, `--subtitle`, `--dry-run`, `--yes/-y`. |
 | `pdf2latex assemble <pdf\|slug>` | Rebuild the monolith + standalone from existing pages. |
 | `pdf2latex split <pdf\|slug>` | Split into chapters: `--config <file.json>` or `--auto`. |
 | `pdf2latex compile <pdf\|slug>` | Compile the standalone `.tex` to PDF: `--engine`, `--runs`. |
@@ -216,6 +216,16 @@ output/Book/Book-standalone.tex  ──pdflatex──▶  Book-standalone.pdf
 - The web UI offers three model tiers as buttons — **Cheaper** (`gpt-5-mini`),
   **Balanced** (`gpt-5`, the default) and **Best** (`gpt-5.5`); from the CLI pick
   any model with `--model`.
+- **Two engines.** Besides the OpenAI API (default), you can convert with
+  **Claude Code** — it uses the local `claude` CLI and your Claude subscription,
+  so there is **no OpenAI cost**. Requires Claude Code installed and signed in
+  (`claude` on PATH). It is slower than the parallel API for big books and is
+  subject to your subscription's limits. CLI: `--engine claude-code`; web UI:
+  pick *Claude Code* under Engine.
+
+  ```bash
+  pdf2latex convert "My Book.pdf" --engine claude-code
+  ```
 - The cost figure is an estimate, and the GPT-5 prices shipped in the table are
   best-effort. Override the per-model price table without editing code by pointing
   `PDF2LATEX_PRICES` at a JSON file, where each value is

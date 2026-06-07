@@ -267,6 +267,22 @@ def test_repair_latex_flags_unsafe_fix_and_can_be_disabled() -> None:
     assert res2.rejected is None  # guard can be turned off
 
 
+def test_render_page_to_file_writes_png(tmp_path: Path) -> None:
+    from pypdf import PdfWriter
+
+    from pdf2latex.worker import render_page_to_file
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    pdf_path = tmp_path / "one.pdf"
+    with pdf_path.open("wb") as fh:
+        writer.write(fh)
+    dest = tmp_path / "page.png"
+    render_page_to_file(str(pdf_path), 0, dest, scale=1.0)
+
+    assert dest.exists() and dest.stat().st_size > 0
+
+
 def test_repair_with_image_sends_image_and_strips_fences() -> None:
     fixed = "```latex\n\\begin{array}{cc}a & b\\end{array}\n```"
     client = FakeClient([_response(fixed, usage=(5, 6, 11))])

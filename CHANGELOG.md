@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   estimate, a single-page test before a full run, live progress over
   Server-Sent Events, and result downloads. Backed by a new `on_event` progress
   hook on `convert_pdf`.
+- Claude Code engine: a second conversion engine (`--engine claude-code`, or
+  *Claude Code* in the web UI's Engine selector) that converts each page via the
+  local `claude` CLI in headless mode (`claude -p`), using your Claude
+  subscription instead of the OpenAI API — no OpenAI cost. Reuses all existing
+  machinery (render, assemble, compile, validate, resume, Stop). New module
+  `claude_engine.py`; `convert_pdf(engine=...)`; `/api/info` reports
+  `claude_available`; the web UI hides the model tiers and the cost estimate for
+  this engine. Requires Claude Code installed and signed in.
 - Prompt hardening against page overflow: a "Page layout" rule stops the model
   trapping a whole page of definitions/figures in one unbreakable `tabular`/
   `minipage` (which left a page half-empty and overflowed onto the next). It now

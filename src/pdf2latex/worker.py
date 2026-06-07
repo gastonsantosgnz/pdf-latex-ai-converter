@@ -55,6 +55,18 @@ def render_page_to_base64(pdf_path: str, page_index: int = 0, scale: float = 2.0
             pdf.close()
 
 
+def render_page_to_file(pdf_path: str, page_index: int, dest, scale: float = 2.0) -> None:
+    """Render one page of a PDF to a PNG file (for engines that read from disk)."""
+    import pypdfium2 as pdfium
+
+    with _RENDER_LOCK:
+        pdf = pdfium.PdfDocument(pdf_path)
+        try:
+            pdf[page_index].render(scale=scale).to_pil().save(str(dest))
+        finally:
+            pdf.close()
+
+
 def _looks_blank(text: str) -> bool:
     t = (text or "").strip()
     if t.startswith("%"):
