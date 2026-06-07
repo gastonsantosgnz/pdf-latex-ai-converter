@@ -37,6 +37,10 @@
   button.primary { background: var(--accent); border-color: var(--accent); color: #0b1020; font-weight: 600; }
   button.sm { padding: 6px 10px; font-size: 12px; }
   button:disabled { opacity: .5; cursor: not-allowed; }
+  .seg { display: flex; width: 100%; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { flex: 1; border: none; border-right: 1px solid var(--line); border-radius: 0; background: #10131a; padding: 9px 0; font-size: 14px; color: var(--ink); cursor: pointer; }
+  .seg button:last-child { border-right: none; }
+  .seg button.sel { background: var(--accent); color: #0b1020; font-weight: 600; }
   .summary { color: var(--muted); font-size: 13px; margin: -4px 0 14px; }
   .lib { display: flex; flex-direction: column; gap: 8px; }
   .item { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #12151c; }
@@ -115,10 +119,18 @@
       <div><label for="profile">Profile</label>
         <select id="profile"><option value="default">default</option><option value="dense">dense</option></select>
       </div>
-      <div><label for="workers">Workers</label><input type="number" id="workers" value="4" min="1" /></div>
+      <div><label>Workers</label>
+        <div class="seg" id="workers">
+          <button type="button" data-w="1">1</button>
+          <button type="button" data-w="2">2</button>
+          <button type="button" data-w="4" class="sel">4</button>
+          <button type="button" data-w="8">8</button>
+        </div>
+      </div>
     </div>
+    <p class="note" id="profileHint" style="margin-top:8px"></p>
     <div class="check"><input type="checkbox" id="repair" /><label for="repair">Auto-repair invalid pages (extra API calls)</label></div>
-    <p class="note">These settings apply to each PDF below. Use a row's <em>Estimate</em> to compare cost across models and test a single page before converting the whole document.</p>
+    <p class="note">Workers = pages converted at once (faster, more API pressure). Use a row's <em>Estimate</em> to compare cost across models and test a single page before converting the whole document.</p>
   </div>
 
   <div class="card hidden" id="progressCard">
@@ -162,8 +174,12 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-let jobId = null, es = null, running = false, estState = {};
+let jobId = null, es = null, running = false, estState = {}, selectedWorkers = 4;
 const LABEL = { pending: "Pending", in_progress: "In progress", done: "Done" };
+const PROFILE_HINT = {
+  default: "default — transcribe every page faithfully (text, math, tables). Best for most documents.",
+  dense: "dense — for textbooks packed with tables, diagrams and photos: keeps tables and figures, skips decorative photos and colors.",
+};
 
 async function loadInfo() {
   try {
@@ -356,7 +372,7 @@ async function start(dryRun, source) {
   fd.append("source", source);
   fd.append("model", $("model").value || "gpt-4o");
   fd.append("profile", $("profile").value);
-  fd.append("workers", $("workers").value || "4");
+  fd.append("workers", String(selectedWorkers));
   fd.append("dry_run", dryRun ? "true" : "false");
   fd.append("repair", $("repair").checked ? "true" : "false");
 
@@ -415,6 +431,18 @@ function handle(ev) {
       break;
   }
 }
+
+function updateProfileHint() { $("profileHint").textContent = PROFILE_HINT[$("profile").value] || ""; }
+$("profile").onchange = updateProfileHint;
+updateProfileHint();
+
+document.querySelectorAll("#workers button").forEach((b) => {
+  b.onclick = () => {
+    selectedWorkers = parseInt(b.dataset.w, 10);
+    document.querySelectorAll("#workers button").forEach((x) => x.classList.remove("sel"));
+    b.classList.add("sel");
+  };
+});
 
 loadInfo();
 loadLibrary();
