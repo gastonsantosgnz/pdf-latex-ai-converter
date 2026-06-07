@@ -25,8 +25,9 @@ heading hierarchy.
   `\phantom` alignment, escaped currency (`\$`), safe exponents, no nested
   display-math bugs.
 - **Tables & diagrams**: faithful `tabular`; diagrams rebuilt with `tikz`.
-- **Profiles**: `default` and `dense` (textbooks full of tables/photos — skips
-  decorative photos, keeps academic figures, drops decorative colors).
+- **Conversion quality**: `dense` (the default — best for textbooks: faithfully
+  rebuilds tables and diagrams, skips decorative photos and colors) or `default`
+  (a plain transcription for simple documents).
 - **Resumable & batched**: already-converted pages are skipped; convert in
   batches to stay under rate limits.
 - **Assembling**: stitches pages into one monolithic `.tex` plus a ready-to-build
@@ -88,14 +89,15 @@ cp .env.example .env       # Windows: copy .env.example .env
 pdf2latex list
 
 # Preview scope and approximate cost first (renders pages, makes zero API calls)
-pdf2latex convert "My Book.pdf" --profile dense --dry-run
+pdf2latex convert "My Book.pdf" --dry-run
 
-# Convert the whole document (small PDFs)
-pdf2latex convert "My Book.pdf" --profile dense
+# Convert the whole document (small PDFs). Quality defaults to 'dense' (best
+# for textbooks); add --profile default for a plain document.
+pdf2latex convert "My Book.pdf"
 
 # Or convert in batches of 100 pages (recommended for large books)
-pdf2latex convert "My Book.pdf" --batch 1 --profile dense
-pdf2latex convert "My Book.pdf" --batch 2 --profile dense
+pdf2latex convert "My Book.pdf" --batch 1
+pdf2latex convert "My Book.pdf" --batch 2
 # ...repeat until done (the tool tells you the next batch)
 ```
 
@@ -201,7 +203,8 @@ output/Book/Book-standalone.tex  ──pdflatex──▶  Book-standalone.pdf
 
 ## Tips & cost control
 
-- Use `--profile dense` for textbooks with many tables, diagrams and photos.
+- Conversion quality is `dense` by default (best for textbooks). Pass
+  `--profile default` only for a plain document where you want photos kept.
 - Use `--batch N` to convert large books in chunks and resume safely.
 - Pages convert concurrently (default `--workers 4`), which cuts wall-clock time
   on large books. Use `--workers 1` for strictly sequential behaviour. If your
@@ -252,7 +255,7 @@ To let the model fix the flagged pages automatically during conversion, add
 it uses extra API calls). `--repair-retries N` bounds the attempts per page.
 
 ```bash
-pdf2latex convert "My Book.pdf" --profile dense --repair
+pdf2latex convert "My Book.pdf" --repair
 ```
 
 ## Web UI (optional)

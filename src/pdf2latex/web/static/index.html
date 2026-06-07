@@ -148,8 +148,11 @@
     <h2 style="margin-bottom:14px">Conversion options</h2>
     <div class="row">
       <div><label for="model">Model</label><select id="model"></select></div>
-      <div><label for="profile">Profile</label>
-        <select id="profile"><option value="default">default</option><option value="dense">dense</option></select>
+      <div><label for="profile">Conversion quality</label>
+        <select id="profile">
+          <option value="dense" selected>Textbook — best quality (recommended)</option>
+          <option value="default">Plain document</option>
+        </select>
       </div>
       <div><label>Workers</label>
         <div class="seg" id="workers">
@@ -189,7 +192,7 @@
         <ul><li>Upload one with <em>Choose File</em>, or drop PDFs into the sources folder shown above and click <em>Refresh</em>.</li></ul>
         <h3>2. Convert and track</h3>
         <ol>
-          <li>Set the options (model, <code>dense</code> profile for textbooks, workers).</li>
+          <li>Set the options. Conversion quality defaults to <em>Textbook</em> (best results); switch to <em>Plain document</em> only for simple files.</li>
           <li>Click <em>Estimate</em> for a free cost preview (no API calls).</li>
           <li>Click <em>Convert</em> and watch live progress. <em>Resume</em> continues a half-done PDF.</li>
           <li>When a row shows <em>Done</em>, use its download links (monolith / standalone / needs-review).</li>
@@ -249,8 +252,8 @@ function updateRow(done, total, pct) {
   }
 }
 const PROFILE_HINT = {
-  default: "default — transcribe every page faithfully (text, math, tables). Best for most documents.",
-  dense: "dense — for textbooks packed with tables, diagrams and photos: keeps tables and figures, skips decorative photos and colors.",
+  dense: "Best quality for textbooks: faithfully rebuilds tables and diagrams, keeps every formula, and skips decorative photos and background colors. Recommended for math and science books.",
+  default: "Plain transcription of text, math and tables, with no special handling. Use only for simple documents, or when you want photographs kept instead of skipped.",
 };
 
 async function loadInfo() {

@@ -141,7 +141,7 @@ def convert_pdf(
     source_pdf: Path,
     *,
     model: str,
-    profile: str = "default",
+    profile: str = "dense",
     max_tokens: int = 16384,
     batch: int | None = None,
     start: int | None = None,

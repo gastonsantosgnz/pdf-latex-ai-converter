@@ -423,7 +423,7 @@ def create_app() -> FastAPI:
     def start_convert(
         source: str = Form(...),
         model: str = Form("gpt-4o"),
-        profile: str = Form("default"),
+        profile: str = Form("dense"),
         workers: int = Form(4),
         dry_run: bool = Form(False),
         repair: bool = Form(False),

@@ -220,7 +220,13 @@ def build_parser() -> argparse.ArgumentParser:
     pc = sub.add_parser("convert", help="Convert a PDF to LaTeX page by page.")
     pc.add_argument("source", help="PDF filename in sources/ or a full path.")
     pc.add_argument("--model", default=_default_model())
-    pc.add_argument("--profile", choices=("default", "dense"), default="default")
+    pc.add_argument(
+        "--profile",
+        choices=("default", "dense"),
+        default="dense",
+        help="Conversion quality. 'dense' (default) is best for textbooks; "
+        "'default' is a plain transcription for simple documents.",
+    )
     pc.add_argument("--max-tokens", type=int, default=16384)
     pc.add_argument("--batch", type=int, default=None, help="Process batch N (size --batch-size).")
     pc.add_argument("--batch-size", type=int, default=100)
