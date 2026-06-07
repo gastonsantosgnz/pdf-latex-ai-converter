@@ -21,6 +21,13 @@ venv/
 env/
 .venv-311/
 
+# --- Test / coverage / tooling caches ---
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+
 # --- LaTeX aux files ---
 *.aux
 *.log

@@ -166,7 +166,7 @@ def make_client(api_key: str | None = None):
     return OpenAI(api_key=key)
 
 
-def _cli() -> int:
+def _cli() -> int:  # pragma: no cover - thin CLI glue, exercised by smoke job
     from pathlib import Path
 
     from dotenv import load_dotenv

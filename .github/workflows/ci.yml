@@ -53,7 +53,7 @@ jobs:
       - name: Run tests (if present)
         run: |
           if [ -d tests ]; then
-            pytest -q
+            pytest -q --cov-fail-under=80
           else
             echo "No tests/ directory yet (see ROADMAP item 2)."
           fi

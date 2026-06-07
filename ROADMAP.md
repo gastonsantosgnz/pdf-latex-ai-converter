@@ -8,7 +8,7 @@ Status legend: `done` · `in progress` · `planned`
 
 ---
 
-## 1. Continuous Integration (GitHub Actions) — `in progress`
+## 1. Continuous Integration (GitHub Actions) — `done`
 
 **Goal.** Every push and pull request is automatically linted and smoke-tested,
 so broken code never reaches `main` and the repo shows a green build badge.
@@ -27,7 +27,7 @@ so broken code never reaches `main` and the repo shows a green build badge.
 
 ---
 
-## 2. Test suite with `pytest` (LLM mocked) — `planned`
+## 2. Test suite with `pytest` (LLM mocked) — `done`
 
 **Goal.** Lock down the deterministic parts of the pipeline so refactors are
 safe, without spending a cent on the OpenAI API.

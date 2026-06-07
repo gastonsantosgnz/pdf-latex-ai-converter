@@ -21,6 +21,7 @@ dependencies = [
 dev = [
     "ruff>=0.6",
     "pytest>=8.0",
+    "pytest-cov>=5",
 ]
 
 [project.scripts]
@@ -49,3 +50,16 @@ ignore = ["E501", "B008"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+addopts = "--cov=pdf2latex --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["pdf2latex"]
+# Thin CLI glue is exercised by the smoke job, not unit-tested here.
+omit = ["*/cli.py", "*/__main__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
