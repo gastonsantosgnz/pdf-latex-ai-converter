@@ -1,5 +1,7 @@
 # pdf-latex-ai-converter
 
+[![CI](https://github.com/gastonsantosgnz/pdf-latex-ai-converter/actions/workflows/ci.yml/badge.svg)](https://github.com/gastonsantosgnz/pdf-latex-ai-converter/actions/workflows/ci.yml)
+
 Convert **math-heavy PDFs into clean, compilable LaTeX** — page by page — using a
 vision LLM (OpenAI GPT-4o by default).
 
