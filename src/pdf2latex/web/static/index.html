@@ -78,6 +78,19 @@
   .rep-actions { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
   .rep-done { color: var(--ok); font-size: 12px; }
   .rep-skip { color: var(--warn); font-size: 12px; }
+  .rep-undo { margin-left: 8px; }
+  .result { margin-top: 14px; border-radius: 12px; padding: 18px; border: 1px solid; }
+  .result.ok { border-color: #1f4636; background: #102019; }
+  .result.warn { border-color: #4a3c20; background: #221c10; }
+  .result-title { font-size: 16px; font-weight: 700; margin: 0; }
+  .result.ok .result-title { color: var(--ok); }
+  .result.warn .result-title { color: var(--warn); }
+  .result-sub { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+  .result-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .btn-hero { display: inline-block; background: var(--ok); color: #06140d; font-weight: 700;
+    font-size: 14px; text-decoration: none; padding: 11px 18px; border-radius: 9px; border: none; cursor: pointer; }
+  .btn-ghost { display: inline-block; background: transparent; color: var(--ink); font-size: 13px;
+    text-decoration: none; padding: 10px 15px; border-radius: 9px; border: 1px solid var(--line); cursor: pointer; }
   .hidden { display: none !important; }  /* utility: must beat .modal's display:flex */
   .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -157,6 +170,7 @@
     <div class="status"><span id="statusText" class="muted">Starting…</span><span id="tally" class="muted"></span></div>
     <div class="bar" id="bar"><i id="barFill"></i></div>
     <div class="status" style="margin-top:8px"><span id="timer" class="muted"></span><span></span></div>
+    <div class="result hidden" id="resultBanner"></div>
     <div class="log" id="log"></div>
     <div class="report hidden" id="compileReport"></div>
   </div>
@@ -196,6 +210,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let jobId = null, es = null, running = false, estState = {}, selectedWorkers = 4;
+let LIB_BY_NAME = {};
 let convStart = 0, convTimer = null, lastEta = "", activeSource = "";
 let skipCount = 0, skipLineEl = null;
 const LABEL = { pending: "Pending", in_progress: "In progress", done: "Done" };
@@ -388,6 +403,8 @@ async function loadLibrary() {
   $("summary").textContent = summary.total
     ? `${summary.done} of ${summary.total} done · ${summary.in_progress} in progress · ${summary.pending} pending`
     : "";
+  LIB_BY_NAME = {};
+  for (const it of items) LIB_BY_NAME[it.name] = it;
   const lib = $("lib");
   lib.innerHTML = "";
   if (!items.length) {
@@ -472,7 +489,8 @@ async function compileBook(slug, name) {
   $("progressTitle").textContent = "Compiling PDF — " + name;
   $("log").innerHTML = ""; $("tally").textContent = ""; $("timer").textContent = "";
   $("compileReport").innerHTML = ""; $("compileReport").classList.add("hidden");
-  $("statusText").textContent = "Running LaTeX… this can take a minute";
+  hideResult();
+  $("statusText").textContent = "Building your PDF… this can take a minute";
   $("bar").classList.add("busy"); $("barFill").style.width = "100%";
   logLine("Compiling " + name + " to PDF…");
   try {
@@ -480,8 +498,9 @@ async function compileBook(slug, name) {
     const data = await r.json().catch(() => ({}));
     if (r.ok && data.success) {
       $("statusText").textContent = "PDF ready";
-      logLine("PDF compiled. The PDF download is now on the row below.", "ok");
+      logLine("Done — your PDF is ready.", "ok");
       await loadLibrary();
+      showResultReady(slug, name);
     } else if (r.ok && data.success === false) {
       $("statusText").textContent = `Compile failed — ${data.errors.length} page(s) to fix`;
       renderCompileReport(slug, name, data.errors, data.message);
@@ -500,6 +519,48 @@ async function compileBook(slug, name) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function hideResult() {
+  const b = $("resultBanner");
+  b.classList.add("hidden");
+  b.innerHTML = "";
+}
+
+// Big, plain-language "your PDF is ready" panel with one-click actions.
+function showResultReady(slug, name) {
+  const b = $("resultBanner");
+  const url = `/api/output/${slug}/pdf`;
+  b.className = "result ok";
+  b.innerHTML = `
+    <p class="result-title">Your PDF is ready</p>
+    <p class="result-sub">${escapeHtml(name)} compiled successfully.</p>
+    <div class="result-actions">
+      <a class="btn-hero" href="${url}" download>Download PDF</a>
+      <a class="btn-ghost" href="${url}" target="_blank" rel="noopener">View PDF</a>
+      <button class="btn-ghost" type="button" id="resOpen">Open folder</button>
+    </div>`;
+  b.classList.remove("hidden");
+  const ob = $("resOpen");
+  if (ob) ob.onclick = () => revealFolder(slug);
+}
+
+// After a conversion finishes, point the user to the obvious next step.
+function showConvertedNext(slug, name, needsReview) {
+  const b = $("resultBanner");
+  b.className = "result " + (needsReview ? "warn" : "ok");
+  b.innerHTML = `
+    <p class="result-title">${needsReview ? "Converted — a few pages may need a look" : "Conversion complete"}</p>
+    <p class="result-sub">${escapeHtml(name)} is ready to turn into a PDF.</p>
+    <div class="result-actions">
+      <button class="btn-hero" type="button" id="resCompile">Compile PDF now</button>
+      <button class="btn-ghost" type="button" id="resOpen2">Open folder</button>
+    </div>`;
+  b.classList.remove("hidden");
+  const cb = $("resCompile");
+  if (cb) cb.onclick = () => compileBook(slug, name);
+  const ob = $("resOpen2");
+  if (ob) ob.onclick = () => revealFolder(slug);
 }
 
 function renderCompileReport(slug, name, errors, message) {
@@ -565,7 +626,10 @@ async function fixOne(slug, page, btn) {
           '<span class="rep-skip">Skipped to protect the page — the AI fix looked unsafe (' +
           (body.rejected || "would damage the page") + "). Edit it manually instead.</span>";
       } else {
-        actions.innerHTML = '<span class="rep-done">Repaired — compile again to check.</span>';
+        actions.innerHTML =
+          '<span class="rep-done">Repaired — compile again to check.</span>' +
+          '<button class="sm rep-undo" type="button">Undo</button>';
+        actions.querySelector(".rep-undo").onclick = (ev) => restorePage(slug, page, ev.currentTarget);
       }
     } else {
       const e = await r.json().catch(() => ({}));
@@ -575,10 +639,26 @@ async function fixOne(slug, page, btn) {
   } catch (e) { btn.textContent = old; btn.disabled = false; alert("AI repair error: " + e); }
 }
 
+// Revert a page to the .tex.bak saved before the last applied repair.
+async function restorePage(slug, page, btn) {
+  btn.disabled = true; const old = btn.textContent; btn.textContent = "Undoing…";
+  try {
+    const r = await fetch(`/api/restore?slug=${encodeURIComponent(slug)}&page=${page}`, { method: "POST" });
+    if (r.ok) {
+      btn.closest(".rep-actions").innerHTML =
+        '<span class="rep-skip">Reverted to the version before the AI repair.</span>';
+    } else {
+      const e = await r.json().catch(() => ({}));
+      btn.disabled = false; btn.textContent = old;
+      alert("Could not undo: " + (e.detail || r.status));
+    }
+  } catch (e) { btn.disabled = false; btn.textContent = old; alert("Undo error: " + e); }
+}
+
 async function fixAll(slug, name, pages) {
   if (running) return;
   setBusy(true);
-  $("compileReport").innerHTML = ""; $("log").innerHTML = "";
+  $("compileReport").innerHTML = ""; $("log").innerHTML = ""; hideResult();
   $("statusText").textContent = `Repairing ${pages.length} page(s) with AI…`;
   $("bar").classList.add("busy"); $("barFill").style.width = "100%";
   let ok = 0, skipped = 0;
@@ -609,6 +689,7 @@ async function start(dryRun, source) {
   $("progressCard").classList.remove("hidden");
   $("progressTitle").textContent = (dryRun ? "Estimate — " : "Converting — ") + source;
   $("log").innerHTML = ""; $("barFill").style.width = "0%"; $("tally").textContent = "";
+  $("compileReport").innerHTML = ""; $("compileReport").classList.add("hidden"); hideResult();
   skipCount = 0; skipLineEl = null;
   $("statusText").textContent = dryRun ? "Dry run…" : "Converting…";
 
@@ -677,12 +758,15 @@ function handle(ev) {
       $("statusText").textContent = "Error";
       logLine("Error: " + ev.message, "err");
       break;
-    case "done":
+    case "done": {
       $("barFill").style.width = "100%";
       $("statusText").textContent = `Done — OK ${ev.ok}, failed ${ev.failed}, ${ev.needs_review} need review`;
       $("tally").textContent = `${ev.tokens.toLocaleString()} tok | ~$${ev.usd.toFixed(2)}`;
       logLine(`Done. OK=${ev.ok} FAIL=${ev.failed} tokens=${ev.tokens} ~$${ev.usd.toFixed(2)} needs-review=${ev.needs_review}`, "ok");
+      const slug = (LIB_BY_NAME[activeSource] || {}).slug;
+      if (slug) showConvertedNext(slug, activeSource, ev.needs_review > 0 || ev.failed > 0);
       break;
+    }
     case "_end":
       if (es) es.close();
       clearInterval(convTimer);

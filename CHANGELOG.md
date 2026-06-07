@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   estimate, a single-page test before a full run, live progress over
   Server-Sent Events, and result downloads. Backed by a new `on_event` progress
   hook on `convert_pdf`.
+- Friendlier web results: a plain-language "Your PDF is ready" panel with
+  one-click Download / View / Open folder after a successful compile, a
+  "Compile PDF now" next-step prompt when a conversion finishes, and a per-page
+  "Undo" button (backed by `/api/restore`) to revert an applied AI repair.
 - Compile-driven auto-repair: a new `fix` subcommand (and the web "Fix all"
   button) compiles the book, reads the real pdflatex error attributed to each
   page, and repairs that page with the model using BOTH its source image and the
