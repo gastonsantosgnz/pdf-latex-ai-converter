@@ -20,8 +20,14 @@ from pathlib import Path
 
 # USD per 1,000,000 tokens, as (input, output). Best-effort snapshot; update via
 # PDF2LATEX_PRICES rather than editing here if your account differs.
-PRICES_LAST_UPDATED = "2025-06"
+PRICES_LAST_UPDATED = "2026-06"
 DEFAULT_PRICES: dict[str, tuple[float, float]] = {
+    # GPT-5 family — the three tiers the UI offers (cheap / balanced / best).
+    # Best-effort prices; verify at openai.com/pricing or override via PDF2LATEX_PRICES.
+    "gpt-5-mini": (0.25, 2.00),
+    "gpt-5": (1.25, 10.00),
+    "gpt-5.5": (2.50, 15.00),
+    # GPT-4 family kept for compatibility (still usable via the CLI --model flag).
     "gpt-4o": (2.50, 10.00),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4.1": (2.00, 8.00),
@@ -29,8 +35,8 @@ DEFAULT_PRICES: dict[str, tuple[float, float]] = {
     "gpt-4.1-nano": (0.10, 0.40),
 }
 
-# Model used to price an unknown model name (the project's default model).
-FALLBACK_MODEL = "gpt-4o"
+# Model used to price an unknown model name.
+FALLBACK_MODEL = "gpt-5"
 
 # Per-page token assumptions: a high-detail page image plus the (long) system
 # prompt on input, and a page worth of LaTeX on output. The low/high band varies

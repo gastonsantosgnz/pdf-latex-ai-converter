@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
 Convert **math-heavy PDFs into clean, compilable LaTeX** — page by page — using a
-vision LLM (OpenAI GPT-4o by default).
+vision LLM (OpenAI GPT-5 by default).
 
 Unlike a plain OCR/text dump, this tool is tuned to **detect and reconstruct
 mathematical structure**: inline and display equations, vertically aligned
@@ -213,12 +213,16 @@ output/Book/Book-standalone.tex  ──pdflatex──▶  Book-standalone.pdf
   render-validates the pages and makes **zero API calls**.
 - Every `convert` shows that pre-flight summary and asks for confirmation before
   spending. Pass `--yes` (or `-y`) to skip the prompt in scripts and CI.
-- The cost figure is an estimate. Override the per-model price table without
-  editing code by pointing `PDF2LATEX_PRICES` at a JSON file, where each value is
+- The web UI offers three model tiers as buttons — **Cheaper** (`gpt-5-mini`),
+  **Balanced** (`gpt-5`, the default) and **Best** (`gpt-5.5`); from the CLI pick
+  any model with `--model`.
+- The cost figure is an estimate, and the GPT-5 prices shipped in the table are
+  best-effort. Override the per-model price table without editing code by pointing
+  `PDF2LATEX_PRICES` at a JSON file, where each value is
   `[input_usd_per_1M_tokens, output_usd_per_1M_tokens]`:
 
   ```bash
-  echo '{ "gpt-4o": [2.5, 10.0], "my-model": [1.0, 3.0] }' > prices.json
+  echo '{ "gpt-5": [1.25, 10.0], "my-model": [1.0, 3.0] }' > prices.json
   PDF2LATEX_PRICES=prices.json pdf2latex convert "My Book.pdf" --dry-run
   ```
 

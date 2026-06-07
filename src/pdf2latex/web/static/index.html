@@ -159,7 +159,13 @@
   <div class="card">
     <h2 style="margin-bottom:14px">Conversion options</h2>
     <div class="row">
-      <div><label for="model">Model</label><select id="model"></select></div>
+      <div><label>Model</label>
+        <div class="seg" id="modelSeg">
+          <button type="button" data-model="gpt-5-mini">Cheaper</button>
+          <button type="button" data-model="gpt-5" class="sel">Balanced</button>
+          <button type="button" data-model="gpt-5.5">Best</button>
+        </div>
+      </div>
       <div><label>Workers</label>
         <div class="seg" id="workers">
           <button type="button" data-w="1">1</button>
@@ -169,8 +175,9 @@
         </div>
       </div>
     </div>
+    <p class="note" id="modelHint" style="margin-top:8px"></p>
     <div class="check" style="margin-top:8px"><input type="checkbox" id="repair" /><label for="repair">Auto-repair invalid pages (extra API calls)</label></div>
-    <p class="note">Workers = pages converted at once (faster, more API pressure). Use a row's <em>Estimate</em> to compare cost across models and test a single page before converting the whole document.</p>
+    <p class="note">Workers = pages converted at once (faster, more API pressure). Use a row's <em>Estimate</em> to preview cost and test a single page before converting the whole document.</p>
   </div>
 
   <div class="card hidden" id="progressCard">
@@ -190,7 +197,7 @@
       <div class="help-body">
         <h3>0. One-time setup (in your terminal)</h3>
         <ul>
-          <li>Put your key in a <code>.env</code> file at the project root: <code>OPENAI_API_KEY=sk-...</code> (optional default model: <code>PDF2LATEX_MODEL=gpt-4o</code>).</li>
+          <li>Put your key in a <code>.env</code> file at the project root: <code>OPENAI_API_KEY=sk-...</code> (optional default model: <code>PDF2LATEX_MODEL=gpt-5</code>).</li>
           <li>Choose where results are saved (outside the repo): <code>export PDF2LATEX_OUTPUT_DIR=~/Documents/your-folder</code>, then start with <code>pdf2latex serve</code>. Restart serve after changing it.</li>
         </ul>
         <h3>1. Add PDFs</h3>
@@ -229,6 +236,12 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let jobId = null, es = null, running = false, estState = {}, selectedWorkers = 4;
+let selectedModel = "gpt-5";
+const MODEL_INFO = {
+  "gpt-5-mini": "Cheaper — gpt-5-mini. Lowest cost; fine for clean, text-heavy pages.",
+  "gpt-5": "Balanced — gpt-5. Strong default for most textbooks (recommended).",
+  "gpt-5.5": "Best — gpt-5.5. Highest quality for dense math, tables and messy scans; costs a bit more.",
+};
 let LIB_BY_NAME = {};
 let convStart = 0, convTimer = null, lastEta = "", activeSource = "";
 let skipCount = 0, skipLineEl = null;
@@ -270,16 +283,8 @@ function updateRow(done, total, pct) {
 async function loadInfo() {
   try {
     const i = await (await fetch("/api/info")).json();
-    const sel = $("model");
-    sel.innerHTML = "";
-    for (const m of i.models) {
-      const o = document.createElement("option");
-      o.value = m; o.textContent = m;
-      if (m === i.default_model) o.selected = true;
-      sel.appendChild(o);
-    }
     $("outpath").textContent = "Saving to " + i.output_dir;
-  } catch (e) { /* leave the dropdown empty on failure */ }
+  } catch (e) { /* output path stays blank on failure */ }
 }
 
 async function revealFolder(slug) {
@@ -317,11 +322,14 @@ async function openEstimate(source) {
   } catch (e) { alert("Could not estimate this PDF."); return; }
   estState = { source, slug: d.slug, total: d.total };
   $("estTitle").textContent = `Estimate & test — ${d.name}`;
-  const current = $("model").value;
-  const rows = d.models.map((m) => `
-    <div class="est-row ${m.model === current ? "sel" : ""}" data-model="${m.model}">
-      <span>${m.model}</span><span class="est-cost">$${m.usd_low.toFixed(2)} – $${m.usd_high.toFixed(2)}</span>
-    </div>`).join("");
+  const tierLabel = { "gpt-5-mini": "Cheaper", "gpt-5": "Balanced", "gpt-5.5": "Best" };
+  const byModel = Object.fromEntries(d.models.map((m) => [m.model, m]));
+  const rows = ["gpt-5-mini", "gpt-5", "gpt-5.5"].filter((id) => byModel[id]).map((id) => {
+    const m = byModel[id];
+    return `<div class="est-row ${id === selectedModel ? "sel" : ""}" data-model="${id}">
+      <span>${tierLabel[id]} <span class="muted">· ${id}</span></span><span class="est-cost">$${m.usd_low.toFixed(2)} – $${m.usd_high.toFixed(2)}</span>
+    </div>`;
+  }).join("");
   $("estBody").innerHTML = `
     <p class="muted" style="font-size:13px;margin:0 0 10px">${d.pending} of ${d.total} pages to convert. Approximate cost per model — click one to use it:</p>
     <div class="est-table">${rows}</div>
@@ -341,7 +349,7 @@ async function openEstimate(source) {
     </div>`;
   $("estBody").querySelectorAll(".est-row").forEach((row) => {
     row.onclick = () => {
-      $("model").value = row.dataset.model;
+      setModel(row.dataset.model);
       $("estBody").querySelectorAll(".est-row").forEach((r) => r.classList.remove("sel"));
       row.classList.add("sel");
     };
@@ -380,7 +388,7 @@ function runTest(source, n) {
   $("testResult").classList.remove("hidden");
   const fd = new FormData();
   fd.append("source", source);
-  fd.append("model", $("model").value);
+  fd.append("model", selectedModel);
   fd.append("workers", "1");
   fd.append("start", String(n));
   fd.append("end", String(n));
@@ -687,7 +695,7 @@ async function copyPrompt(slug, page, error, btn) {
 async function fixOne(slug, page, btn) {
   btn.disabled = true; const old = btn.textContent; btn.textContent = "Fixing…";
   try {
-    const r = await fetch(`/api/repair?slug=${encodeURIComponent(slug)}&page=${page}&model=${encodeURIComponent($("model").value)}`, { method: "POST" });
+    const r = await fetch(`/api/repair?slug=${encodeURIComponent(slug)}&page=${page}&model=${encodeURIComponent(selectedModel)}`, { method: "POST" });
     if (r.ok) {
       const body = await r.json().catch(() => ({}));
       const actions = btn.closest(".rep-row").querySelector(".rep-actions");
@@ -735,7 +743,7 @@ async function fixAll(slug, name, pages) {
   for (const page of pages) {
     logLine(`Repairing page ${page}…`);
     try {
-      const r = await fetch(`/api/repair?slug=${encodeURIComponent(slug)}&page=${page}&model=${encodeURIComponent($("model").value)}`, { method: "POST" });
+      const r = await fetch(`/api/repair?slug=${encodeURIComponent(slug)}&page=${page}&model=${encodeURIComponent(selectedModel)}`, { method: "POST" });
       if (r.ok) {
         const body = await r.json().catch(() => ({}));
         if (body.applied === false) { skipped++; logLine(`page ${page}: skipped — unsafe AI fix (${body.rejected || "would damage the page"})`, "warn"); }
@@ -765,7 +773,7 @@ async function start(dryRun, source) {
 
   const fd = new FormData();
   fd.append("source", source);
-  fd.append("model", $("model").value || "gpt-4o");
+  fd.append("model", selectedModel);
   fd.append("workers", String(selectedWorkers));
   fd.append("dry_run", dryRun ? "true" : "false");
   fd.append("repair", $("repair").checked ? "true" : "false");
@@ -854,6 +862,15 @@ document.querySelectorAll("#workers button").forEach((b) => {
     b.classList.add("sel");
   };
 });
+
+function setModel(m) {
+  if (!MODEL_INFO[m]) return;  // ignore models outside the three tiers
+  selectedModel = m;
+  document.querySelectorAll("#modelSeg button").forEach((x) => x.classList.toggle("sel", x.dataset.model === m));
+  $("modelHint").textContent = MODEL_INFO[m];
+}
+document.querySelectorAll("#modelSeg button").forEach((b) => { b.onclick = () => setModel(b.dataset.model); });
+setModel(selectedModel);
 
 loadInfo();
 loadLibrary();

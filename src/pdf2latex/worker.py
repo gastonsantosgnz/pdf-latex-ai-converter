@@ -363,7 +363,7 @@ def _cli() -> int:  # pragma: no cover - thin CLI glue, exercised by smoke job
     parser.add_argument("--input", required=True, help="PDF file (page 1 is used unless --page).")
     parser.add_argument("--output", required=True, help="Destination .tex file.")
     parser.add_argument("--page", type=int, default=1, help="1-based page number (default 1).")
-    parser.add_argument("--model", default=os.environ.get("PDF2LATEX_MODEL", "gpt-4o"))
+    parser.add_argument("--model", default=os.environ.get("PDF2LATEX_MODEL", "gpt-5"))
     parser.add_argument("--max-tokens", type=int, default=16384)
     args = parser.parse_args()
 

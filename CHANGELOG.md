@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   estimate, a single-page test before a full run, live progress over
   Server-Sent Events, and result downloads. Backed by a new `on_event` progress
   hook on `convert_pdf`.
+- Model picker as three tiers: the model dropdown is now a segmented button
+  control — **Cheaper** (`gpt-5-mini`), **Balanced** (`gpt-5`, default) and
+  **Best** (`gpt-5.5`) — matching the Workers control, with a one-line
+  description of each. The default model moves from `gpt-4o` to `gpt-5` across
+  the web, CLI and pricing fallback; the GPT-5 family is added to the price table
+  (best-effort, override with `PDF2LATEX_PRICES`). The GPT-4 models stay usable
+  via the CLI `--model` flag.
 - Cleaner Library cards: a clear "Add PDF" button replaces the raw file input;
   each row shows only its primary actions (Convert/Resume/Compile/Download PDF)
   and tucks the rest (Estimate, the `.tex` downloads, Open folder, Reconvert)

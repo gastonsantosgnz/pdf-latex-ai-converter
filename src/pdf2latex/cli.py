@@ -21,7 +21,7 @@ from .layout import OUTPUT_DIR, SOURCES_DIR, BookPaths, resolve_source
 
 
 def _default_model() -> str:
-    return os.environ.get("PDF2LATEX_MODEL", "gpt-4o")
+    return os.environ.get("PDF2LATEX_MODEL", "gpt-5")
 
 
 def _cmd_list(_args: argparse.Namespace) -> int:

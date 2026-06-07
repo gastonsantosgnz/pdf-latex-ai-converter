@@ -175,7 +175,7 @@ def create_app() -> FastAPI:
     def info() -> dict:
         from ..pricing import load_prices
 
-        default_model = os.environ.get("PDF2LATEX_MODEL", "gpt-4o")
+        default_model = os.environ.get("PDF2LATEX_MODEL", "gpt-5")
         models = sorted(set(load_prices()) | {default_model})
         return {
             "api_key_set": bool(os.environ.get("OPENAI_API_KEY")),
@@ -433,7 +433,7 @@ def create_app() -> FastAPI:
     @app.post("/api/convert")
     def start_convert(
         source: str = Form(...),
-        model: str = Form("gpt-4o"),
+        model: str = Form("gpt-5"),
         workers: int = Form(4),
         dry_run: bool = Form(False),
         repair: bool = Form(False),
