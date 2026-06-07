@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   thread-safe logging and a token-bucket rate limiter (`--rpm`/`--tpm`) that
   replaces the old fixed delay. `--workers 1` reproduces the sequential output
   byte for byte.
+- Offline LaTeX validation on every page (balanced braces, matched
+  `\begin`/`\end`, even unescaped `$`), an optional `chktex` deep check, an
+  opt-in `--repair` auto-fix round-trip, a `needs-review.txt` report, and a new
+  `validate` subcommand to re-check an existing conversion offline.
 
 ## [0.1.0] - 2026-06-06
 

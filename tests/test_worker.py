@@ -18,6 +18,7 @@ from pdf2latex.worker import (
     convert_image_b64,
     make_client,
     render_page_to_base64,
+    repair_latex,
 )
 
 
@@ -163,6 +164,19 @@ def test_make_client_with_explicit_key() -> None:
     client = make_client(api_key="sk-explicit-test")
     assert client is not None
     assert hasattr(client, "chat")
+
+
+def test_repair_latex_fixes_and_strips_fences() -> None:
+    fixed = "```latex\n\\begin{itemize}\\item x\\end{itemize}\n```"
+    client = FakeClient([_response(fixed, usage=(3, 4, 7))])
+    res = repair_latex(client, "\\begin{itemize}\\item x", ["unclosed itemize"], model="gpt-4o")
+
+    assert "```" not in res.latex
+    assert "\\end{itemize}" in res.latex
+    assert res.total_tokens == 7
+    # The detected problem is handed to the model in the prompt.
+    sent = client.calls[0]["messages"][1]["content"]
+    assert "unclosed itemize" in sent
 
 
 def test_render_page_to_base64_produces_png(tmp_path: Path) -> None:

@@ -13,6 +13,7 @@ import os
 import time
 from dataclasses import dataclass
 
+from .assemble import strip_code_fences
 from .prompts import build_system_prompt, build_user_text
 
 
@@ -134,6 +135,54 @@ def convert_image_b64(
         )
 
     raise RuntimeError("worker: conversion loop produced no output")
+
+
+def repair_latex(
+    client,
+    latex: str,
+    problems: list[str],
+    *,
+    model: str,
+    max_tokens: int = 4096,
+    rate_limit_retries: int = 5,
+) -> PageResult:
+    """Ask the model to minimally fix a page's LaTeX given the detected problems.
+
+    Returns a :class:`PageResult` with the corrected LaTeX and token usage so the
+    caller can account for the extra cost of the repair round-trip.
+    """
+    system_prompt = (
+        "You fix LaTeX so it compiles, with MINIMAL edits. Return ONLY the corrected "
+        "LaTeX for the page: no preamble, no \\documentclass, no Markdown code fences. "
+        "Preserve ALL content and the original language. Do not add or remove material; "
+        "only repair the reported problems and any directly related breakage."
+    )
+    problem_list = "\n".join(f"- {p}" for p in problems) or "- (unspecified)"
+    user_text = (
+        "The following LaTeX page has these problems:\n"
+        f"{problem_list}\n\n"
+        "Return the corrected LaTeX for the whole page:\n\n"
+        f"{latex}"
+    )
+    response = _create_with_backoff(
+        client,
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text},
+        ],
+        max_tokens=max_tokens,
+        retries=rate_limit_retries,
+    )
+    choice = response.choices[0]
+    usage = response.usage
+    return PageResult(
+        latex=strip_code_fences(choice.message.content or ""),
+        prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+        completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+        total_tokens=getattr(usage, "total_tokens", 0) or 0,
+        finish_reason=getattr(choice, "finish_reason", None),
+    )
 
 
 def _create_with_backoff(client, *, model, messages, max_tokens, retries):

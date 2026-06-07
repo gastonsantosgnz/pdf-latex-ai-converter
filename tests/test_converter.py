@@ -256,3 +256,66 @@ def test_parallel_output_matches_sequential_byte_for_byte(
         if "OK   page " in line
     ]
     assert ok_pages == sorted(ok_pages) == [1, 2, 3, 4, 5, 6]
+
+
+# --------------------------------------------------------------------------- #
+# Feature 6: validation and auto-repair                                       #
+# --------------------------------------------------------------------------- #
+def test_repair_not_called_when_pages_validate(
+    tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf = _make_pdf(tmp_path / "book.pdf", pages=2)
+
+    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+        return PageResult(latex="\\section*{ok}", prompt_tokens=1, completion_tokens=2, total_tokens=3)
+
+    _stub_pipeline(monkeypatch, fake_convert)
+    monkeypatch.setattr(
+        converter, "repair_latex", lambda *a, **k: pytest.fail("repair_latex should not be called")
+    )
+
+    paths = convert_pdf(pdf, model="gpt-4o", assume_yes=True, repair=True)
+    # Acceptance: zero repair API calls when everything already validates.
+    assert not (paths.out_dir / "needs-review.txt").exists()
+
+
+def test_repair_fixes_invalid_page(
+    tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf = _make_pdf(tmp_path / "book.pdf", pages=1)
+
+    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+        return PageResult(latex="\\begin{itemize}\\item x", total_tokens=3)  # unclosed env
+
+    _stub_pipeline(monkeypatch, fake_convert)
+    calls: list[list[str]] = []
+
+    def fake_repair(client, latex, problems, *, model, max_tokens):
+        calls.append(problems)
+        return PageResult(
+            latex="\\begin{itemize}\\item x\\end{itemize}", prompt_tokens=2, completion_tokens=3, total_tokens=5
+        )
+
+    monkeypatch.setattr(converter, "repair_latex", fake_repair)
+
+    paths = convert_pdf(pdf, model="gpt-4o", assume_yes=True, repair=True)
+
+    assert len(calls) == 1  # one repair round-trip
+    assert "\\end{itemize}" in paths.page_tex(1).read_text(encoding="utf-8")
+    assert not (paths.out_dir / "needs-review.txt").exists()  # fixed -> nothing to review
+
+
+def test_needs_review_written_without_repair(
+    tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf = _make_pdf(tmp_path / "book.pdf", pages=1)
+
+    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+        return PageResult(latex="\\begin{itemize}\\item x", total_tokens=3)
+
+    _stub_pipeline(monkeypatch, fake_convert)
+    paths = convert_pdf(pdf, model="gpt-4o", assume_yes=True)  # repair disabled
+
+    report = paths.out_dir / "needs-review.txt"
+    assert report.exists()
+    assert "page_0001.tex" in report.read_text(encoding="utf-8")

@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 
 from pypdf import PdfReader
@@ -27,13 +28,25 @@ from .pricing import (
 )
 from .progress import ProgressBar
 from .ratelimit import RateLimiter
-from .worker import convert_image_b64, make_client, render_page_to_base64
+from .validate import validate_pages, validate_text, write_needs_review
+from .worker import convert_image_b64, make_client, render_page_to_base64, repair_latex
 
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_WORKERS = 4
 
 # Guards the shared log so concurrent worker threads never interleave a line.
 _LOG_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class _Outcome:
+    """Result of converting (and optionally repairing) a single page."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    finish_reason: str | None
+    repaired: bool
 
 
 def _log(paths: BookPaths, msg: str, *, console: bool = True) -> None:
@@ -141,6 +154,8 @@ def convert_pdf(
     subtitle: str | None = None,
     dry_run: bool = False,
     assume_yes: bool = False,
+    repair: bool = False,
+    repair_retries: int = 1,
 ) -> BookPaths:
     """Convert ``source_pdf`` to per-page .tex files and (re)build the monolith.
 
@@ -153,6 +168,11 @@ def convert_pdf(
     stays resumable, so already-converted pages are skipped). An optional
     :class:`~pdf2latex.ratelimit.RateLimiter` (``rpm``/``tpm``) paces the API
     calls; ``workers=1`` reproduces the strictly sequential behaviour.
+
+    Every converted page is checked by the offline LaTeX validator. With
+    ``repair`` enabled, a failing page is sent back to the model for a minimal
+    fix (up to ``repair_retries`` times). A ``needs-review.txt`` report lists any
+    pages that still fail after the run.
 
     Returns the resolved :class:`BookPaths` so callers can keep working with it.
     """
@@ -232,23 +252,38 @@ def convert_pdf(
         usd = cost_for_tokens(model, tot_prompt, tot_completion, prices=prices)
         return f"{tot_tokens:,} tok | ~${usd:,.2f}"
 
-    def _convert_one(page_num: int):
-        """Convert one page in a worker thread; mutates no shared state."""
+    def _convert_one(page_num: int) -> _Outcome:
+        """Convert (and optionally auto-repair) one page in a worker thread."""
         limiter.acquire(est_tokens)
         img_b64 = render_page_to_base64(str(source_pdf), page_index=page_num - 1, scale=scale)
         result = convert_image_b64(
             client, img_b64, model=model, max_tokens=max_tokens, profile=profile
         )
+        latex = result.latex
+        pt, ct, tt = result.prompt_tokens, result.completion_tokens, result.total_tokens
+
+        issues = validate_text(latex)
+        attempts = 0
+        while repair and issues and attempts < repair_retries:
+            limiter.acquire(est_tokens)
+            fix = repair_latex(
+                client, latex, [str(i) for i in issues], model=model, max_tokens=max_tokens
+            )
+            latex = fix.latex
+            pt += fix.prompt_tokens
+            ct += fix.completion_tokens
+            tt += fix.total_tokens
+            issues = validate_text(latex)
+            attempts += 1
+
         page_tex = paths.page_tex(page_num)
-        page_tex.write_text(result.latex, encoding="utf-8")
-        if result.total_tokens:
+        page_tex.write_text(latex, encoding="utf-8")
+        if tt:
             page_tex.with_suffix(".usage.txt").write_text(
-                f"model={model} prompt_tokens={result.prompt_tokens} "
-                f"completion_tokens={result.completion_tokens} "
-                f"total_tokens={result.total_tokens}\n",
+                f"model={model} prompt_tokens={pt} completion_tokens={ct} total_tokens={tt}\n",
                 encoding="utf-8",
             )
-        return result
+        return _Outcome(pt, ct, tt, result.finish_reason, repaired=attempts > 0)
 
     pending_set = set(pending)
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
@@ -262,13 +297,14 @@ def convert_pdf(
                 bar.update(advance=1, note=_tally_note())
                 continue
             try:
-                result = futures[page_num].result()
-                if result.total_tokens:
-                    tot_prompt += result.prompt_tokens
-                    tot_completion += result.completion_tokens
-                    tot_tokens += result.total_tokens
+                outcome = futures[page_num].result()
+                tot_prompt += outcome.prompt_tokens
+                tot_completion += outcome.completion_tokens
+                tot_tokens += outcome.total_tokens
                 ok += 1
-                extra = "" if result.finish_reason in (None, "stop") else f" [{result.finish_reason}]"
+                extra = "" if outcome.finish_reason in (None, "stop") else f" [{outcome.finish_reason}]"
+                if outcome.repaired:
+                    extra += " [repaired]"
                 _log(paths, f"OK   page {page_num}{extra}", console=not quiet)
             except Exception as exc:  # noqa: BLE001 - record and continue
                 failed += 1
@@ -282,13 +318,21 @@ def convert_pdf(
 
     assemble_monolith(paths)
     write_standalone(paths, title=title, subtitle=subtitle)
+
+    review = validate_pages(paths, range(start_page, end_page + 1))
+    report = write_needs_review(paths, review)
+    n_review = sum(1 for issues in review.values() if issues)
+
     actual = cost_for_tokens(model, tot_prompt, tot_completion, prices=prices)
     _log(
         paths,
         f"Done. OK={ok} FAIL={failed} | tokens={tot_tokens:,} "
         f"(prompt={tot_prompt:,}, completion={tot_completion:,}) | "
-        f"actual cost ~${actual:,.2f} | assembled -> {paths.monolith_tex.name}",
+        f"actual cost ~${actual:,.2f} | needs-review={n_review} | "
+        f"assembled -> {paths.monolith_tex.name}",
     )
+    if report is not None:
+        _log(paths, f"Pages needing manual review are listed in {report.name}")
 
     if end_page < total:
         nxt = end_page + 1

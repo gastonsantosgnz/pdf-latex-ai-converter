@@ -6,6 +6,7 @@ Subcommands:
     assemble   Rebuild the monolith and standalone from existing pages.
     split      Split the monolith into chapter files (config or --auto).
     compile    Compile the standalone .tex into PDF (needs pdflatex).
+    validate   Check converted pages for broken LaTeX (offline).
 """
 
 from __future__ import annotations
@@ -56,6 +57,8 @@ def _cmd_convert(args: argparse.Namespace) -> int:
         subtitle=args.subtitle,
         dry_run=args.dry_run,
         assume_yes=args.yes,
+        repair=args.repair,
+        repair_retries=args.repair_retries,
     )
     return 0
 
@@ -89,6 +92,36 @@ def _cmd_compile(args: argparse.Namespace) -> int:
 
     paths = _paths_for(args.source)
     compile_pdf(paths.standalone_tex, engine=args.engine, runs=args.runs)
+    return 0
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    from .assemble import iter_page_files
+    from .validate import (
+        deep_check,
+        deep_check_available,
+        validate_existing,
+        write_needs_review,
+    )
+
+    paths = _paths_for(args.source)
+    review = validate_existing(paths)
+    if not review:
+        print(f"No converted pages found in {paths.pages_dir}.")
+        return 0
+
+    if args.deep_check:
+        if deep_check_available(args.engine):
+            for page_num, tex in iter_page_files(paths):
+                review[page_num] = review.get(page_num, []) + deep_check(tex, engine=args.engine)
+        else:
+            print(f"Deep check skipped: '{args.engine}' not found on PATH.")
+
+    report = write_needs_review(paths, review)
+    n_review = sum(1 for issues in review.values() if issues)
+    print(f"Validated {len(review)} page(s); {n_review} need review.")
+    if report is not None:
+        print(f"See {report}")
     return 0
 
 
@@ -144,6 +177,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip the confirmation prompt (for non-interactive/automated runs).",
     )
+    pc.add_argument(
+        "--repair",
+        action="store_true",
+        help="Send pages that fail validation back to the model for a minimal fix (uses API).",
+    )
+    pc.add_argument(
+        "--repair-retries",
+        type=int,
+        default=1,
+        help="Max repair round-trips per failing page (default 1).",
+    )
     pc.set_defaults(func=_cmd_convert)
 
     pa = sub.add_parser("assemble", help="Rebuild monolith + standalone from pages.")
@@ -163,6 +207,14 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--engine", default="pdflatex")
     pp.add_argument("--runs", type=int, default=2)
     pp.set_defaults(func=_cmd_compile)
+
+    pvd = sub.add_parser("validate", help="Check converted pages for broken LaTeX (offline).")
+    pvd.add_argument("source", help="Source PDF reference or existing output slug.")
+    pvd.add_argument(
+        "--deep-check", action="store_true", help="Also run an external linter (chktex)."
+    )
+    pvd.add_argument("--engine", default="chktex", help="Deep-check linter (default chktex).")
+    pvd.set_defaults(func=_cmd_validate)
 
     return parser
 

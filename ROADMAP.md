@@ -117,7 +117,7 @@ independent pages concurrently, without tripping the provider's rate limits.
 
 ---
 
-## 6. LaTeX validation & auto-repair pass — `planned`
+## 6. LaTeX validation & auto-repair pass — `done`
 
 **Goal.** Reduce manual cleanup to near zero by catching and fixing broken LaTeX
 per page, and by telling the user exactly which pages still need a human.

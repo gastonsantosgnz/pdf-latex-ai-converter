@@ -120,10 +120,11 @@ pdf2latex compile "My Book"
 | Command | What it does |
 |---|---|
 | `pdf2latex list` | List PDFs in `sources/`. |
-| `pdf2latex convert <pdf>` | Convert pages → `.tex`, then assemble. Flags: `--profile`, `--batch`, `--batch-size`, `--start`, `--end`, `--model`, `--max-tokens`, `--scale`, `--workers`, `--rpm`, `--tpm`, `--title`, `--subtitle`, `--dry-run`, `--yes/-y`. |
+| `pdf2latex convert <pdf>` | Convert pages → `.tex`, then assemble. Flags: `--profile`, `--batch`, `--batch-size`, `--start`, `--end`, `--model`, `--max-tokens`, `--scale`, `--workers`, `--rpm`, `--tpm`, `--repair`, `--repair-retries`, `--title`, `--subtitle`, `--dry-run`, `--yes/-y`. |
 | `pdf2latex assemble <pdf\|slug>` | Rebuild the monolith + standalone from existing pages. |
 | `pdf2latex split <pdf\|slug>` | Split into chapters: `--config <file.json>` or `--auto`. |
 | `pdf2latex compile <pdf\|slug>` | Compile the standalone `.tex` to PDF: `--engine`, `--runs`. |
+| `pdf2latex validate <pdf\|slug>` | Check converted pages for broken LaTeX offline (braces, environments, math); writes `needs-review.txt`. Flags: `--deep-check`, `--engine`. |
 
 `<slug>` is the folder name created under `output/` (e.g. `My-Book`).
 
@@ -192,6 +193,30 @@ output/Book/Book-standalone.tex  ──pdflatex──▶  Book-standalone.pdf
   `pdflatex` log; fix the few flagged pages by editing the page `.tex`.
 - The standalone preamble loads missing images in `draft` mode (boxes instead of
   errors). Remove `\setkeys{Gin}{draft}` once you add real image files.
+
+## Validation and cleanup
+
+Every converted page is checked by a cheap, offline validator (balanced braces,
+matched `\begin`/`\end`, and an even count of unescaped `$`). Pages that still
+look broken after the run are listed in `output/<slug>/needs-review.txt` with the
+specific reason, so you know exactly where to look instead of discovering errors
+only at final compile time.
+
+```bash
+# Re-check an existing conversion at any time (offline, no API calls)
+pdf2latex validate "My Book"
+
+# Optionally run a deeper external linter when available
+pdf2latex validate "My Book" --deep-check        # uses chktex if installed
+```
+
+To let the model fix the flagged pages automatically during conversion, add
+`--repair` (this sends each failing page back to the model for a minimal fix, so
+it uses extra API calls). `--repair-retries N` bounds the attempts per page.
+
+```bash
+pdf2latex convert "My Book.pdf" --profile dense --repair
+```
 
 ## Notes
 
