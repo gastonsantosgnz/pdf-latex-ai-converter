@@ -181,7 +181,10 @@
   </div>
 
   <div class="card hidden" id="progressCard">
-    <h2 id="progressTitle" style="margin-bottom:12px">Progress</h2>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px">
+      <h2 id="progressTitle" style="margin:0">Progress</h2>
+      <button id="stopBtn" type="button" class="sm danger-btn hidden">Stop</button>
+    </div>
     <div class="status"><span id="statusText" class="muted">Starting…</span><span id="tally" class="muted"></span></div>
     <div class="bar" id="bar"><i id="barFill"></i></div>
     <div class="status" style="margin-top:8px"><span id="timer" class="muted"></span><span></span></div>
@@ -769,6 +772,7 @@ async function start(dryRun, source) {
   $("log").innerHTML = ""; $("barFill").style.width = "0%"; $("tally").textContent = "";
   $("compileReport").innerHTML = ""; $("compileReport").classList.add("hidden"); hideResult();
   skipCount = 0; skipLineEl = null;
+  $("stopBtn").classList.add("hidden");
   $("statusText").textContent = dryRun ? "Dry run…" : "Converting…";
 
   const fd = new FormData();
@@ -785,11 +789,22 @@ async function start(dryRun, source) {
     setBusy(false); return;
   }
   jobId = (await r.json()).job_id;
+  if (!dryRun) $("stopBtn").classList.remove("hidden");  // real run: allow stopping
   if (es) es.close();
   es = new EventSource(`/api/jobs/${jobId}/events`);
   es.onmessage = (e) => handle(JSON.parse(e.data));
   es.onerror = () => { es.close(); clearInterval(convTimer); setBusy(false); };
 }
+
+async function stopConversion() {
+  if (!jobId) return;
+  const btn = $("stopBtn");
+  btn.disabled = true; btn.textContent = "Stopping…";
+  $("statusText").textContent = "Stopping after the current pages…";
+  try { await fetch(`/api/jobs/${jobId}/stop`, { method: "POST" }); }
+  catch (e) { /* the run will end on its own anyway */ }
+}
+$("stopBtn").onclick = stopConversion;
 
 function handle(ev) {
   switch (ev.type) {
@@ -849,6 +864,8 @@ function handle(ev) {
       clearInterval(convTimer);
       lastEta = ""; updateTimer();  // freeze on the final elapsed time
       setBusy(false);
+      $("stopBtn").classList.add("hidden");
+      $("stopBtn").disabled = false; $("stopBtn").textContent = "Stop";
       loadLibrary();
       break;
   }

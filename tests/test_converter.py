@@ -110,6 +110,26 @@ def test_convert_pdf_happy_path(
     assert paths.page_tex(1).read_text(encoding="utf-8") == "LATEX"
 
 
+def test_convert_pdf_stops_when_requested(
+    tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf = _make_pdf(tmp_path / "book.pdf", pages=3)
+    calls: list[str] = []
+
+    def fake_convert(client, img_b64, *, model, max_tokens):
+        calls.append(img_b64)
+        return PageResult(latex="X", total_tokens=1)
+
+    _stub_pipeline(monkeypatch, fake_convert)
+    events: list[dict] = []
+    convert_pdf(
+        pdf, model="gpt-4o", assume_yes=True, should_stop=lambda: True, on_event=events.append
+    )
+
+    assert calls == []  # stop short-circuits before any API call
+    assert any(e.get("type") == "aborted" for e in events)
+
+
 def test_convert_pdf_skips_already_converted(
     tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

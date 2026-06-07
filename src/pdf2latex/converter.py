@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,6 +48,10 @@ class _Outcome:
     total_tokens: int
     finish_reason: str | None
     repaired: bool
+
+
+class _Cancelled(Exception):
+    """Raised inside a worker when the user asked to stop the run."""
 
 
 def _log(paths: BookPaths, msg: str, *, console: bool = True) -> None:
@@ -157,6 +161,7 @@ def convert_pdf(
     repair_retries: int = 1,
     output_root: Path | None = None,
     on_event: Callable[[dict], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> BookPaths:
     """Convert ``source_pdf`` to per-page .tex files and (re)build the monolith.
 
@@ -279,6 +284,8 @@ def convert_pdf(
 
     def _convert_one(page_num: int) -> _Outcome:
         """Convert (and optionally auto-repair) one page in a worker thread."""
+        if should_stop is not None and should_stop():
+            raise _Cancelled  # a queued page picked up after Stop: don't call the API
         limiter.acquire(est_tokens)
         img_b64 = render_page_to_base64(str(source_pdf), page_index=page_num - 1, scale=scale)
         result = convert_image_b64(client, img_b64, model=model, max_tokens=max_tokens)
@@ -326,11 +333,17 @@ def convert_pdf(
             }
         )
 
+    stopped = False
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         futures = {page_num: pool.submit(_convert_one, page_num) for page_num in pending}
         # Consume in page order: counters/logs stay deterministic even when
         # workers > 1, while the conversions themselves run concurrently.
         for page_num in range(start_page, end_page + 1):
+            if should_stop is not None and should_stop():
+                stopped = True
+                for fut in futures.values():
+                    fut.cancel()  # drop queued pages; running ones finish and are kept
+                break
             if page_num not in pending_set:
                 _log(paths, f"SKIP page {page_num} (already converted)", console=not quiet)
                 paths.pages_dir.joinpath(f"page_{page_num:04d}.err.txt").unlink(missing_ok=True)
@@ -350,6 +363,9 @@ def convert_pdf(
                     extra += " [repaired]"
                     status = "repaired"
                 _log(paths, f"OK   page {page_num}{extra}", console=not quiet)
+            except (_Cancelled, CancelledError):
+                stopped = True
+                break
             except Exception as exc:  # noqa: BLE001 - record and continue
                 failed += 1
                 status = "err"
@@ -364,6 +380,16 @@ def convert_pdf(
 
     assemble_monolith(paths)
     write_standalone(paths, title=title, subtitle=subtitle)
+
+    if stopped:
+        _log(paths, f"Stopped by user. OK={ok} saved; the rest is still pending.")
+        emit(
+            {
+                "type": "aborted",
+                "reason": f"Stopped — {ok} page(s) converted and saved. Use Resume to continue.",
+            }
+        )
+        return paths
 
     review = validate_pages(paths, range(start_page, end_page + 1))
     report = write_needs_review(paths, review)

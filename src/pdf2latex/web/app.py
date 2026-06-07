@@ -41,6 +41,7 @@ class Job:
     result: dict | None = None
     error: str | None = None
     paths: BookPaths | None = None
+    stop: threading.Event = field(default_factory=threading.Event)
 
 
 def _output_targets(paths: BookPaths) -> dict:
@@ -114,6 +115,10 @@ class JobManager:
             raise HTTPException(status_code=404, detail="unknown job")
         return job
 
+    def cancel(self, job_id: str) -> None:
+        """Ask a running job to stop after its in-flight pages finish."""
+        self.get(job_id).stop.set()
+
     def start(self, params: dict) -> Job:
         job = Job(id=uuid.uuid4().hex[:12])
         with self._lock:
@@ -141,6 +146,7 @@ class JobManager:
                 repair=params["repair"],
                 assume_yes=True,
                 on_event=on_event,
+                should_stop=job.stop.is_set,
             )
             job.paths = paths
             # Publish the result before flipping status to "done" so a client
@@ -467,6 +473,12 @@ def create_app() -> FastAPI:
             "events": job.events,
             "result": job.result,
         }
+
+    @app.post("/api/jobs/{job_id}/stop")
+    def job_stop(job_id: str) -> dict:
+        """Ask a running conversion to stop; pages already done are kept."""
+        manager.cancel(job_id)
+        return {"id": job_id, "stopping": True}
 
     @app.get("/api/jobs/{job_id}/events")
     def job_events(job_id: str) -> StreamingResponse:
