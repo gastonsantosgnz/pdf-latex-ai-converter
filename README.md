@@ -33,6 +33,8 @@ heading hierarchy.
   `standalone` document (title page + table of contents).
 - **Chapter splitting**: by an explicit JSON config or auto (blank-page markers).
 - **One-command compile** to PDF (`pdflatex`).
+- **Two interfaces**: a full command-line tool, and an optional local **web UI**
+  (`pdf2latex serve`) with a library dashboard, cost preview and live progress.
 
 ## Project layout
 
@@ -54,6 +56,10 @@ pdf-latex-ai-converter/
 ```
 
 ## Quick start
+
+> Two ways to use it: the **command line** (below) or a local **web UI**
+> (`pdf2latex serve` — see [Web UI](#web-ui-optional)). Both share the same engine,
+> so pick whichever you prefer.
 
 ### 1. Install
 

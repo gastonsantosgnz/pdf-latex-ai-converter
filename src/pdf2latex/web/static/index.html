@@ -63,12 +63,30 @@
   .log .err { color: var(--err); } .log .warn { color: var(--warn); } .log .ok { color: var(--ok); }
   .hidden { display: none; }
   .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 10; }
+  .modal-box { background: var(--card); border: 1px solid var(--line); border-radius: 12px; max-width: 560px; width: 100%; max-height: 86vh; overflow: auto; padding: 20px; }
+  .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .modal-head h2 { margin: 0; font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--ink); }
+  .info { background: #10131a; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-bottom: 16px; }
+  .info > div { display: flex; justify-content: space-between; gap: 14px; padding: 3px 0; }
+  .info .k { color: var(--muted); } .info .v { color: var(--ink); word-break: break-all; text-align: right; }
+  .info .v.bad { color: var(--err); } .info .v.good { color: var(--ok); }
+  .help-body h3 { font-size: 13px; margin: 14px 0 6px; color: var(--ink); }
+  .help-body ol, .help-body ul { margin: 0 0 8px; padding-left: 18px; }
+  .help-body li { font-size: 13px; margin: 4px 0; color: #c7ced9; }
+  .help-body code { background: #0c0e13; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; font: 12px ui-monospace, Menlo, monospace; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>pdf2latex</h1>
-  <p class="sub">Convert math-heavy PDFs to LaTeX with a vision LLM.</p>
+  <div class="header">
+    <div>
+      <h1>pdf2latex</h1>
+      <p class="sub">Convert math-heavy PDFs to LaTeX with a vision LLM.</p>
+    </div>
+    <button id="help" type="button" class="sm">How to use</button>
+  </div>
 
   <div class="card">
     <div class="card-head">
@@ -101,12 +119,51 @@
     <div class="bar"><i id="barFill"></i></div>
     <div class="log" id="log"></div>
   </div>
+
+  <div id="helpModal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head"><h2>How to use</h2><button id="helpClose" type="button" class="sm">Close</button></div>
+      <div class="info" id="helpInfo"></div>
+      <div class="help-body">
+        <h3>1. One-time setup (in your terminal)</h3>
+        <ul>
+          <li>Put your key in a <code>.env</code> file at the project root: <code>OPENAI_API_KEY=sk-...</code> (optional default model: <code>PDF2LATEX_MODEL=gpt-4o</code>).</li>
+          <li>Choose where results are saved (outside the repo): <code>export PDF2LATEX_OUTPUT_DIR=~/Documents/your-folder</code>, then start with <code>pdf2latex serve</code>. Restart serve after changing it.</li>
+        </ul>
+        <h3>2. Add PDFs</h3>
+        <ul><li>Upload one with <em>Choose File</em>, or drop PDFs into the sources folder shown above and click <em>Refresh</em>.</li></ul>
+        <h3>3. Convert and track</h3>
+        <ol>
+          <li>Set the options (model, <code>dense</code> profile for textbooks, workers).</li>
+          <li>Click <em>Estimate</em> for a free cost preview (no API calls).</li>
+          <li>Click <em>Convert</em> and watch live progress. <em>Resume</em> continues a half-done PDF.</li>
+          <li>When a row shows <em>Done</em>, use its download links (monolith / standalone / needs-review).</li>
+        </ol>
+        <p class="note">Conversions spend real OpenAI credit. The same engine also works from the command line, e.g. <code>pdf2latex convert "file.pdf" --dry-run</code>.</p>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 let jobId = null, es = null, running = false;
 const LABEL = { pending: "Pending", in_progress: "In progress", done: "Done" };
+
+async function showHelp() {
+  try {
+    const i = await (await fetch("/api/info")).json();
+    $("helpInfo").innerHTML = `
+      <div><span class="k">OpenAI API key</span><span class="v ${i.api_key_set ? "good" : "bad"}">${i.api_key_set ? "detected" : "not set — add it to .env"}</span></div>
+      <div><span class="k">Default model</span><span class="v">${i.default_model}</span></div>
+      <div><span class="k">Output folder</span><span class="v">${i.output_dir}</span></div>
+      <div><span class="k">Sources folder</span><span class="v">${i.sources_dir}</span></div>`;
+  } catch (e) { $("helpInfo").innerHTML = ""; }
+  $("helpModal").classList.remove("hidden");
+}
+$("help").onclick = showHelp;
+$("helpClose").onclick = () => $("helpModal").classList.add("hidden");
+$("helpModal").onclick = (e) => { if (e.target.id === "helpModal") $("helpModal").classList.add("hidden"); };
 
 async function loadLibrary() {
   const r = await fetch("/api/library");

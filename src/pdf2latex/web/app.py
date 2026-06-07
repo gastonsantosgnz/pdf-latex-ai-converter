@@ -11,6 +11,7 @@ CLI, not a hosted service.
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
 import uuid
@@ -145,6 +146,15 @@ def create_app() -> FastAPI:
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(_STATIC / "index.html")
+
+    @app.get("/api/info")
+    def info() -> dict:
+        return {
+            "api_key_set": bool(os.environ.get("OPENAI_API_KEY")),
+            "default_model": os.environ.get("PDF2LATEX_MODEL", "gpt-4o"),
+            "output_dir": str(OUTPUT_DIR),
+            "sources_dir": str(SOURCES_DIR),
+        }
 
     @app.get("/api/pdfs")
     def list_pdfs() -> dict:

@@ -86,6 +86,14 @@ def test_index_served(client: TestClient) -> None:
     assert "pdf2latex" in r.text
 
 
+def test_info_reports_config(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    data = client.get("/api/info").json()
+    assert data["api_key_set"] is True
+    assert data["default_model"]
+    assert data["output_dir"] and data["sources_dir"]
+
+
 def test_list_and_upload_pdfs(client: TestClient) -> None:
     assert client.get("/api/pdfs").json() == {"pdfs": []}
 
