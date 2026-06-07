@@ -35,11 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   estimate, a single-page test before a full run, live progress over
   Server-Sent Events, and result downloads. Backed by a new `on_event` progress
   hook on `convert_pdf`.
-- Clearer conversion quality: the profile field is relabelled "Conversion
-  quality" with self-explanatory options ("Textbook — best quality
-  (recommended)" / "Plain document") and a description of what each does. The
-  textbook-optimised `dense` profile is now the default everywhere (web, CLI,
-  `convert_pdf`), so the best result is what you get unless you opt out.
+- Single conversion quality: removed the `default`/`dense` profile choice
+  entirely. This tool is for math-heavy documents, so every page is always
+  converted at full fidelity (faithful tables and diagrams, all math, decorative
+  photos and colors skipped). The profile selector is gone from the web UI and
+  the `--profile` flag is gone from the CLI; `build_system_prompt()` /
+  `build_user_text()` and `convert_pdf()` no longer take a profile.
 - Friendlier web results: a plain-language "Your PDF is ready" panel with
   one-click Download / View / Open folder after a successful compile, a
   "Compile PDF now" next-step prompt when a conversion finishes, and a per-page

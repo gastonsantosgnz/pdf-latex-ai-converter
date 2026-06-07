@@ -1,10 +1,11 @@
-"""System prompts and conversion profiles for the vision LLM.
+"""The system prompt for the vision LLM.
 
-The base prompt encodes hard-won rules for turning a *page image* into clean,
-compilable LaTeX with correct math, tables, arrays and diagrams. Profiles add
-extra guidance on top of the base prompt for specific document types.
+This tool exists to convert math-heavy documents, so there is a single, robust
+conversion: every page is transcribed with full fidelity for math, tables,
+arrays and diagrams, decorative photos/colours are skipped, and academic figures
+are rebuilt. There is intentionally no "quality" or "profile" to choose.
 
-Prompts are written in English but instruct the model to preserve the source
+The prompt is written in English but instructs the model to preserve the source
 language of the document, so the converter works for books in any language.
 """
 
@@ -100,10 +101,11 @@ Degrees:
 - In math mode: 5^{\circ}
 """
 
-# Extra rules for dense textbooks full of tables, diagrams and photos.
-DENSE_PROFILE = r"""
+# Extra rules for dense textbooks full of tables, diagrams and photos. These are
+# always applied -- this tool only does the robust, textbook-grade conversion.
+DENSE_RULES = r"""
 
-Dense textbook profile (tables, diagrams, photos):
+Tables, diagrams and photos:
 Photographs and non-academic imagery:
 - Realistic photos (people, scenery, stock, portraits, visual "filler"): do NOT
   reproduce them with \includegraphics and do NOT describe the scene. If there is
@@ -127,35 +129,23 @@ Colors and decoration:
 - Preserve the visual hierarchy with \section*, \subsection*, \subsubsection*.
 """
 
-PROFILES: dict[str, str] = {
-    "default": "",
-    "dense": DENSE_PROFILE,
-}
+# The single, robust system prompt for every page.
+SYSTEM_PROMPT = BASE_SYSTEM_PROMPT + DENSE_RULES
 
-BASE_USER_TEXT = (
-    "Convert this page to LaTeX. Transcribe every visible piece of content "
-    "(text and math) in its original language. Do not answer with only "
-    "% blank-page unless the page has no text, digits or math symbols."
-)
-
-DENSE_USER_TEXT = (
-    "Convert this page to LaTeX following the system profile: full tables, "
-    "diagrams and geometric/didactic figures; omit non-academic photographs "
-    "(or use % photo-omitted if the page is only a photo); no decorative colors; "
-    "keep chapter/topic headings. Do not answer with only % blank-page if there "
-    "is text, tables or academic figures."
+USER_TEXT = (
+    "Convert this page to LaTeX with full fidelity: all text and math in the "
+    "original language; full tables, diagrams and geometric/didactic figures; "
+    "omit non-academic photographs (or use % photo-omitted if the page is only a "
+    "photo); no decorative colors; keep chapter/topic headings. Do not answer "
+    "with only % blank-page if there is text, tables or academic figures."
 )
 
 
-def build_system_prompt(profile: str) -> str:
-    """Return the system prompt for a profile name."""
-    if profile not in PROFILES:
-        raise ValueError(
-            f"Unknown profile {profile!r}. Available: {', '.join(PROFILES)}"
-        )
-    return BASE_SYSTEM_PROMPT + PROFILES[profile]
+def build_system_prompt() -> str:
+    """Return the system prompt for the vision model (single robust conversion)."""
+    return SYSTEM_PROMPT
 
 
-def build_user_text(profile: str) -> str:
-    """Return the user instruction text for a profile name."""
-    return DENSE_USER_TEXT if profile == "dense" else BASE_USER_TEXT
+def build_user_text() -> str:
+    """Return the user instruction text for the vision model."""
+    return USER_TEXT

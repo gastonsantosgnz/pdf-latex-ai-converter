@@ -148,12 +148,6 @@
     <h2 style="margin-bottom:14px">Conversion options</h2>
     <div class="row">
       <div><label for="model">Model</label><select id="model"></select></div>
-      <div><label for="profile">Conversion quality</label>
-        <select id="profile">
-          <option value="dense" selected>Textbook — best quality (recommended)</option>
-          <option value="default">Plain document</option>
-        </select>
-      </div>
       <div><label>Workers</label>
         <div class="seg" id="workers">
           <button type="button" data-w="1">1</button>
@@ -163,7 +157,7 @@
         </div>
       </div>
     </div>
-    <p class="note" id="profileHint" style="margin-top:8px"></p>
+    <p class="note" style="margin-top:8px">Every page is converted at full fidelity for math, tables and diagrams — there is nothing to choose here.</p>
     <div class="check"><input type="checkbox" id="repair" /><label for="repair">Auto-repair invalid pages (extra API calls)</label></div>
     <p class="note">Workers = pages converted at once (faster, more API pressure). Use a row's <em>Estimate</em> to compare cost across models and test a single page before converting the whole document.</p>
   </div>
@@ -192,7 +186,7 @@
         <ul><li>Upload one with <em>Choose File</em>, or drop PDFs into the sources folder shown above and click <em>Refresh</em>.</li></ul>
         <h3>2. Convert and track</h3>
         <ol>
-          <li>Set the options. Conversion quality defaults to <em>Textbook</em> (best results); switch to <em>Plain document</em> only for simple files.</li>
+          <li>Pick the model and number of workers. Every page is always converted at full fidelity (math, tables, diagrams) — there is no quality to choose.</li>
           <li>Click <em>Estimate</em> for a free cost preview (no API calls).</li>
           <li>Click <em>Convert</em> and watch live progress. <em>Resume</em> continues a half-done PDF.</li>
           <li>When a row shows <em>Done</em>, use its download links (monolith / standalone / needs-review).</li>
@@ -251,11 +245,6 @@ function updateRow(done, total, pct) {
     return;
   }
 }
-const PROFILE_HINT = {
-  dense: "Best quality for textbooks: faithfully rebuilds tables and diagrams, keeps every formula, and skips decorative photos and background colors. Recommended for math and science books.",
-  default: "Plain transcription of text, math and tables, with no special handling. Use only for simple documents, or when you want photographs kept instead of skipped.",
-};
-
 async function loadInfo() {
   try {
     const i = await (await fetch("/api/info")).json();
@@ -370,7 +359,6 @@ function runTest(source, n) {
   const fd = new FormData();
   fd.append("source", source);
   fd.append("model", $("model").value);
-  fd.append("profile", $("profile").value);
   fd.append("workers", "1");
   fd.append("start", String(n));
   fd.append("end", String(n));
@@ -699,7 +687,6 @@ async function start(dryRun, source) {
   const fd = new FormData();
   fd.append("source", source);
   fd.append("model", $("model").value || "gpt-4o");
-  fd.append("profile", $("profile").value);
   fd.append("workers", String(selectedWorkers));
   fd.append("dry_run", dryRun ? "true" : "false");
   fd.append("repair", $("repair").checked ? "true" : "false");
@@ -780,9 +767,6 @@ function handle(ev) {
   }
 }
 
-function updateProfileHint() { $("profileHint").textContent = PROFILE_HINT[$("profile").value] || ""; }
-$("profile").onchange = updateProfileHint;
-updateProfileHint();
 
 document.querySelectorAll("#workers button").forEach((b) => {
   b.onclick = () => {

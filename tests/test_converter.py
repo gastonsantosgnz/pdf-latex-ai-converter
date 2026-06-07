@@ -84,7 +84,7 @@ def test_convert_pdf_honors_explicit_output_root(
     monkeypatch.setattr(
         converter,
         "convert_image_b64",
-        lambda client, img, *, model, max_tokens, profile: PageResult(latex="X", total_tokens=1),
+        lambda client, img, *, model, max_tokens: PageResult(latex="X", total_tokens=1),
     )
 
     paths = convert_pdf(pdf, model="gpt-4o", assume_yes=True, output_root=custom)
@@ -98,7 +98,7 @@ def test_convert_pdf_happy_path(
 ) -> None:
     pdf = _make_pdf(tmp_path / "book.pdf", pages=3)
 
-    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+    def fake_convert(client, img_b64, *, model, max_tokens):
         return PageResult(latex="LATEX", total_tokens=3, finish_reason="stop")
 
     _stub_pipeline(monkeypatch, fake_convert)
@@ -108,22 +108,6 @@ def test_convert_pdf_happy_path(
     assert monolith.count("% ===== Page") == 3
     assert paths.standalone_tex.exists()
     assert paths.page_tex(1).read_text(encoding="utf-8") == "LATEX"
-
-
-def test_convert_pdf_defaults_to_dense_profile(
-    tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    pdf = _make_pdf(tmp_path / "book.pdf", pages=1)
-    seen: list[str] = []
-
-    def fake_convert(client, img_b64, *, model, max_tokens, profile):
-        seen.append(profile)
-        return PageResult(latex="X", total_tokens=1)
-
-    _stub_pipeline(monkeypatch, fake_convert)
-    convert_pdf(pdf, model="gpt-4o", assume_yes=True)  # no profile -> best by default
-
-    assert seen == ["dense"]
 
 
 def test_convert_pdf_skips_already_converted(
@@ -136,7 +120,7 @@ def test_convert_pdf_skips_already_converted(
 
     converted: list[str] = []
 
-    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+    def fake_convert(client, img_b64, *, model, max_tokens):
         converted.append(img_b64)
         return PageResult(latex="NEW", total_tokens=1)
 
@@ -154,7 +138,7 @@ def test_convert_pdf_records_errors_and_continues(
 ) -> None:
     pdf = _make_pdf(tmp_path / "book.pdf", pages=3)
 
-    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+    def fake_convert(client, img_b64, *, model, max_tokens):
         if img_b64 == "img-1":  # page 2 fails
             raise ValueError("bad page")
         return PageResult(latex="OK", total_tokens=1)
@@ -173,7 +157,7 @@ def test_convert_pdf_prints_next_batch_hint(
 ) -> None:
     pdf = _make_pdf(tmp_path / "book.pdf", pages=3)
 
-    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+    def fake_convert(client, img_b64, *, model, max_tokens):
         return PageResult(latex="OK", total_tokens=1)
 
     _stub_pipeline(monkeypatch, fake_convert)
@@ -241,7 +225,7 @@ def test_convert_pdf_interactive_accept_converts(
     monkeypatch.setattr(converter, "_stdin_isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda *_a: "y")
 
-    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+    def fake_convert(client, img_b64, *, model, max_tokens):
         return PageResult(latex="OK", prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
     _stub_pipeline(monkeypatch, fake_convert)
@@ -275,7 +259,7 @@ def test_parallel_output_matches_sequential_byte_for_byte(
     )
     monkeypatch.setattr(converter, "make_client", lambda: object())
 
-    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+    def fake_convert(client, img_b64, *, model, max_tokens):
         # Page-dependent content so the monolith reflects ordering faithfully.
         return PageResult(latex=f"PAGE[{img_b64}]", prompt_tokens=1, completion_tokens=2, total_tokens=3)
 
@@ -309,7 +293,7 @@ def test_repair_not_called_when_pages_validate(
 ) -> None:
     pdf = _make_pdf(tmp_path / "book.pdf", pages=2)
 
-    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+    def fake_convert(client, img_b64, *, model, max_tokens):
         return PageResult(latex="\\section*{ok}", prompt_tokens=1, completion_tokens=2, total_tokens=3)
 
     _stub_pipeline(monkeypatch, fake_convert)
@@ -327,7 +311,7 @@ def test_repair_fixes_invalid_page(
 ) -> None:
     pdf = _make_pdf(tmp_path / "book.pdf", pages=1)
 
-    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+    def fake_convert(client, img_b64, *, model, max_tokens):
         return PageResult(latex="\\begin{itemize}\\item x", total_tokens=3)  # unclosed env
 
     _stub_pipeline(monkeypatch, fake_convert)
@@ -353,7 +337,7 @@ def test_needs_review_written_without_repair(
 ) -> None:
     pdf = _make_pdf(tmp_path / "book.pdf", pages=1)
 
-    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+    def fake_convert(client, img_b64, *, model, max_tokens):
         return PageResult(latex="\\begin{itemize}\\item x", total_tokens=3)
 
     _stub_pipeline(monkeypatch, fake_convert)

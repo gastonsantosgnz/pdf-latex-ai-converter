@@ -87,7 +87,6 @@ def _log_preflight(
     end_page: int,
     pending: list[int],
     model: str,
-    profile: str,
     scale: float,
     workers: int,
     rpm: float | None,
@@ -106,7 +105,7 @@ def _log_preflight(
         f"  Range    : {start_page}-{end_page} "
         f"({in_range} in range, {already} already done, {len(pending)} to convert)",
     )
-    _log(paths, f"  Model    : {model}   Profile: {profile}   Scale: {scale}")
+    _log(paths, f"  Model    : {model}   Scale: {scale}")
     _log(paths, f"  Workers  : {max(1, workers)}{rate}")
     if pending:
         est = estimate_cost(model, len(pending), prices=prices)
@@ -141,7 +140,6 @@ def convert_pdf(
     source_pdf: Path,
     *,
     model: str,
-    profile: str = "dense",
     max_tokens: int = 16384,
     batch: int | None = None,
     start: int | None = None,
@@ -162,8 +160,8 @@ def convert_pdf(
 ) -> BookPaths:
     """Convert ``source_pdf`` to per-page .tex files and (re)build the monolith.
 
-    A pre-flight summary (page count, model, profile and an approximate cost) is
-    always shown first. With ``dry_run`` the pending pages are render-validated
+    A pre-flight summary (page count, model and an approximate cost) is always
+    shown first. With ``dry_run`` the pending pages are render-validated
     and the plan is printed without any API call. Without ``assume_yes`` an
     interactive confirmation is required before spending on the API.
 
@@ -192,7 +190,7 @@ def convert_pdf(
 
     _log(
         paths,
-        f"--- session | PDF: {source_pdf.name} | model: {model} | profile: {profile} "
+        f"--- session | PDF: {source_pdf.name} | model: {model} "
         f"| pages {start_page}-{end_page} of {total} ---",
     )
 
@@ -205,7 +203,6 @@ def convert_pdf(
         end_page=end_page,
         pending=pending,
         model=model,
-        profile=profile,
         scale=scale,
         workers=workers,
         rpm=rpm,
@@ -226,7 +223,6 @@ def convert_pdf(
             "already": in_range - len(pending),
             "to_convert": len(pending),
             "model": model,
-            "profile": profile,
             "workers": max(1, workers),
             "est_low": est.usd_low if est else 0.0,
             "est_high": est.usd_high if est else 0.0,
@@ -285,9 +281,7 @@ def convert_pdf(
         """Convert (and optionally auto-repair) one page in a worker thread."""
         limiter.acquire(est_tokens)
         img_b64 = render_page_to_base64(str(source_pdf), page_index=page_num - 1, scale=scale)
-        result = convert_image_b64(
-            client, img_b64, model=model, max_tokens=max_tokens, profile=profile
-        )
+        result = convert_image_b64(client, img_b64, model=model, max_tokens=max_tokens)
         latex = result.latex
         pt, ct, tt = result.prompt_tokens, result.completion_tokens, result.total_tokens
 

@@ -73,7 +73,6 @@ def convert_image_b64(
     *,
     model: str,
     max_tokens: int = 16384,
-    profile: str = "default",
     max_blank_retries: int = 2,
     rate_limit_retries: int = 5,
 ) -> PageResult:
@@ -82,8 +81,8 @@ def convert_image_b64(
     Retries on rate limits (exponential backoff) and re-prompts a couple of
     times if the model wrongly claims the page is blank.
     """
-    system_prompt = build_system_prompt(profile)
-    user_text = build_user_text(profile)
+    system_prompt = build_system_prompt()
+    user_text = build_user_text()
 
     messages: list = [
         {"role": "system", "content": system_prompt},
@@ -366,14 +365,11 @@ def _cli() -> int:  # pragma: no cover - thin CLI glue, exercised by smoke job
     parser.add_argument("--page", type=int, default=1, help="1-based page number (default 1).")
     parser.add_argument("--model", default=os.environ.get("PDF2LATEX_MODEL", "gpt-4o"))
     parser.add_argument("--max-tokens", type=int, default=16384)
-    parser.add_argument("--profile", choices=("default", "dense"), default="default")
     args = parser.parse_args()
 
     client = make_client()
     img_b64 = render_page_to_base64(args.input, page_index=args.page - 1)
-    result = convert_image_b64(
-        client, img_b64, model=args.model, max_tokens=args.max_tokens, profile=args.profile
-    )
+    result = convert_image_b64(client, img_b64, model=args.model, max_tokens=args.max_tokens)
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)

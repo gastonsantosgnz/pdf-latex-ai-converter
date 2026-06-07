@@ -52,7 +52,7 @@ def _wait_done(client: TestClient, job_id: str, timeout: float = 3.0) -> dict:
 
 
 def _stub_convert(out_root: Path):
-    def fake_convert(source_pdf, *, on_event, dry_run, model, profile, workers, **_kw):
+    def fake_convert(source_pdf, *, on_event, dry_run, model, workers, **_kw):
         paths = BookPaths.for_source(source_pdf, output_root=out_root)
         paths.ensure_dirs()
         on_event(

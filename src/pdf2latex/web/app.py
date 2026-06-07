@@ -134,7 +134,6 @@ class JobManager:
             paths = convert_pdf(
                 resolve_source(params["source"], sources_dir=SOURCES_DIR),
                 model=params["model"],
-                profile=params["profile"],
                 workers=params["workers"],
                 start=params.get("start"),
                 end=params.get("end"),
@@ -423,7 +422,6 @@ def create_app() -> FastAPI:
     def start_convert(
         source: str = Form(...),
         model: str = Form("gpt-4o"),
-        profile: str = Form("dense"),
         workers: int = Form(4),
         dry_run: bool = Form(False),
         repair: bool = Form(False),
@@ -438,7 +436,6 @@ def create_app() -> FastAPI:
             {
                 "source": source,
                 "model": model,
-                "profile": profile,
                 "workers": workers,
                 "dry_run": dry_run,
                 "repair": repair,

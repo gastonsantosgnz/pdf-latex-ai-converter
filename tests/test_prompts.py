@@ -1,27 +1,20 @@
-"""Tests for prompt/profile assembly (pure, no network)."""
+"""Tests for prompt assembly (pure, no network)."""
 
 from __future__ import annotations
 
-import pytest
-
 from pdf2latex.prompts import (
     BASE_SYSTEM_PROMPT,
-    DENSE_PROFILE,
+    DENSE_RULES,
     build_system_prompt,
     build_user_text,
 )
 
 
-def test_default_profile_is_base_only() -> None:
-    prompt = build_system_prompt("default")
-    assert prompt == BASE_SYSTEM_PROMPT
-    assert DENSE_PROFILE not in prompt
-
-
-def test_dense_profile_appends_extra_rules() -> None:
-    prompt = build_system_prompt("dense")
+def test_system_prompt_is_base_plus_dense_rules() -> None:
+    prompt = build_system_prompt()
     assert prompt.startswith(BASE_SYSTEM_PROMPT)
-    assert DENSE_PROFILE in prompt
+    assert DENSE_RULES in prompt
+    # The robust conversion always handles photos and figures.
     assert "photo-omitted" in prompt
 
 
@@ -32,14 +25,7 @@ def test_base_prompt_has_compile_safety_rules() -> None:
     assert "Extra alignment tab" in BASE_SYSTEM_PROMPT
 
 
-def test_unknown_profile_raises_value_error() -> None:
-    with pytest.raises(ValueError, match="Unknown profile"):
-        build_system_prompt("nope")
-
-
-def test_build_user_text_varies_by_profile() -> None:
-    default_text = build_user_text("default")
-    dense_text = build_user_text("dense")
-    assert default_text != dense_text
-    assert "blank-page" in default_text
-    assert "photo" in dense_text.lower()
+def test_user_text_is_single_and_robust() -> None:
+    text = build_user_text()
+    assert "blank-page" in text
+    assert "photo" in text.lower()
