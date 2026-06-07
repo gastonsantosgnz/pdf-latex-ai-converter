@@ -14,11 +14,12 @@
     margin: 0; background: var(--bg); color: var(--ink);
     font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
   h1 { font-size: 22px; margin: 0; letter-spacing: .2px; }
   .sub { color: var(--muted); margin: 4px 0 24px; font-size: 13px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
-  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 14px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0; }
   label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
   .row { display: flex; gap: 12px; flex-wrap: wrap; }
   .row > div { flex: 1; min-width: 130px; }
@@ -29,25 +30,39 @@
   .check { display: flex; align-items: center; gap: 8px; margin-top: 22px; }
   .check input { width: 16px; height: 16px; }
   .check label { margin: 0; color: var(--ink); font-size: 14px; }
-  .actions { display: flex; gap: 10px; margin-top: 4px; }
   button {
-    padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line);
-    background: #1d2230; color: var(--ink); font-size: 14px; cursor: pointer;
+    padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+    background: #1d2230; color: var(--ink); font-size: 13px; cursor: pointer;
   }
   button.primary { background: var(--accent); border-color: var(--accent); color: #0b1020; font-weight: 600; }
+  button.sm { padding: 6px 10px; font-size: 12px; }
   button:disabled { opacity: .5; cursor: not-allowed; }
-  .file { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .summary { color: var(--muted); font-size: 13px; margin: -4px 0 14px; }
+  .lib { display: flex; flex-direction: column; gap: 8px; }
+  .item { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #12151c; }
+  .item-top { display: flex; align-items: center; gap: 10px; }
+  .item-name { font-size: 14px; font-weight: 600; flex: 1; word-break: break-all; }
+  .badge { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+  .badge.pending { color: var(--muted); }
+  .badge.in_progress { color: var(--warn); border-color: #4a3c20; background: #221c10; }
+  .badge.done { color: var(--ok); border-color: #1f4636; background: #112019; }
+  .mini { height: 6px; background: #0c0e13; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; margin: 9px 0 6px; }
+  .mini > i { display: block; height: 100%; background: var(--accent); }
+  .item-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+  .chip { color: var(--warn); }
+  .item-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .item-actions a { color: var(--accent); text-decoration: none; font-size: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  .file { display: flex; gap: 8px; align-items: center; }
+  .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
   .bar { height: 10px; background: #10131a; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
   .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
   .status { display: flex; justify-content: space-between; font-size: 13px; margin: 10px 0 6px; }
   .muted { color: var(--muted); }
-  .log { margin-top: 12px; max-height: 220px; overflow: auto; background: #0c0e13; border: 1px solid var(--line);
+  .log { margin-top: 12px; max-height: 200px; overflow: auto; background: #0c0e13; border: 1px solid var(--line);
     border-radius: 8px; padding: 10px 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #c7ced9; }
   .log .err { color: var(--err); } .log .warn { color: var(--warn); } .log .ok { color: var(--ok); }
-  .downloads a { display: inline-block; margin: 4px 8px 0 0; color: var(--accent); text-decoration: none;
-    border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font-size: 13px; }
   .hidden { display: none; }
-  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -56,17 +71,19 @@
   <p class="sub">Convert math-heavy PDFs to LaTeX with a vision LLM.</p>
 
   <div class="card">
-    <h2>Source</h2>
-    <label for="pdf">PDF in sources/</label>
-    <select id="pdf"></select>
-    <div class="file">
-      <input type="file" id="upload" accept="application/pdf" />
-      <button id="refresh" type="button">Refresh</button>
+    <div class="card-head">
+      <h2>Library</h2>
+      <div class="file">
+        <input type="file" id="upload" accept="application/pdf" />
+        <button id="refresh" type="button" class="sm">Refresh</button>
+      </div>
     </div>
+    <div class="summary" id="summary"></div>
+    <div class="lib" id="lib"></div>
   </div>
 
   <div class="card">
-    <h2>Options</h2>
+    <h2 style="margin-bottom:14px">Conversion options</h2>
     <div class="row">
       <div><label for="model">Model</label><input type="text" id="model" value="gpt-4o" /></div>
       <div><label for="profile">Profile</label>
@@ -75,44 +92,66 @@
       <div><label for="workers">Workers</label><input type="number" id="workers" value="4" min="1" /></div>
     </div>
     <div class="check"><input type="checkbox" id="repair" /><label for="repair">Auto-repair invalid pages (extra API calls)</label></div>
-    <div class="actions" style="margin-top:16px">
-      <button id="estimate" type="button">Estimate cost (dry run)</button>
-      <button id="convert" type="button" class="primary">Convert</button>
-    </div>
-    <p class="note">A conversion spends real OpenAI credit. Use the dry run first to preview scope and cost.</p>
+    <p class="note">These settings apply when you Estimate or Convert a PDF below. A conversion spends real OpenAI credit; use the dry-run estimate first.</p>
   </div>
 
   <div class="card hidden" id="progressCard">
-    <h2>Progress</h2>
+    <h2 id="progressTitle" style="margin-bottom:12px">Progress</h2>
     <div class="status"><span id="statusText" class="muted">Starting…</span><span id="tally" class="muted"></span></div>
     <div class="bar"><i id="barFill"></i></div>
     <div class="log" id="log"></div>
-    <div class="downloads" id="downloads" style="margin-top:12px"></div>
   </div>
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
-let jobId = null, es = null;
+let jobId = null, es = null, running = false;
+const LABEL = { pending: "Pending", in_progress: "In progress", done: "Done" };
 
-async function loadPdfs(selectName) {
-  const r = await fetch("/api/pdfs");
-  const { pdfs } = await r.json();
-  const sel = $("pdf");
-  sel.innerHTML = "";
-  if (!pdfs.length) {
-    sel.innerHTML = '<option value="">(drop PDFs in sources/ or upload one)</option>';
+async function loadLibrary() {
+  const r = await fetch("/api/library");
+  const { items, summary } = await r.json();
+  $("summary").textContent = summary.total
+    ? `${summary.done} of ${summary.total} done · ${summary.in_progress} in progress · ${summary.pending} pending`
+    : "";
+  const lib = $("lib");
+  lib.innerHTML = "";
+  if (!items.length) {
+    lib.innerHTML = '<div class="empty">No PDFs yet. Upload one above, or drop files into the sources/ folder and Refresh.</div>';
     return;
   }
-  for (const name of pdfs) {
-    const o = document.createElement("option");
-    o.value = name; o.textContent = name;
-    if (name === selectName) o.selected = true;
-    sel.appendChild(o);
-  }
+  for (const it of items) lib.appendChild(renderItem(it));
 }
 
-$("refresh").onclick = () => loadPdfs();
+function renderItem(it) {
+  const pct = it.total ? Math.round((it.done / it.total) * 100) : 0;
+  const el = document.createElement("div");
+  el.className = "item";
+  const convertLabel = it.status === "in_progress" ? "Resume" : it.status === "done" ? "Reconvert" : "Convert";
+  const review = it.needs_review ? `<span class="chip">${it.needs_review} need review</span>` : "";
+  const downloads = (it.files || [])
+    .filter((f) => f.kind === "monolith" || f.kind === "standalone" || f.kind === "needs-review")
+    .map((f) => `<a href="/api/output/${it.slug}/${f.kind}">${f.kind}</a>`)
+    .join("");
+  el.innerHTML = `
+    <div class="item-top">
+      <span class="item-name">${it.name}</span>
+      <span class="badge ${it.status}">${LABEL[it.status]}</span>
+    </div>
+    <div class="mini"><i style="width:${pct}%"></i></div>
+    <div class="item-meta"><span>${it.done}/${it.total} pages</span>${review}</div>
+    <div class="item-actions">
+      <button class="sm act" data-src="${it.name}" data-dry="1">Estimate</button>
+      <button class="sm act primary" data-src="${it.name}" data-dry="0">${convertLabel}</button>
+      ${downloads}
+    </div>`;
+  el.querySelectorAll("button.act").forEach((b) => {
+    b.onclick = () => start(b.dataset.dry === "1", b.dataset.src);
+  });
+  return el;
+}
+
+$("refresh").onclick = loadLibrary;
 
 $("upload").onchange = async (e) => {
   const file = e.target.files[0];
@@ -121,9 +160,8 @@ $("upload").onchange = async (e) => {
   fd.append("file", file);
   const r = await fetch("/api/upload", { method: "POST", body: fd });
   if (!r.ok) { alert("Upload failed"); return; }
-  const { name } = await r.json();
-  await loadPdfs(name);
   e.target.value = "";
+  loadLibrary();
 };
 
 function logLine(text, cls) {
@@ -136,17 +174,16 @@ function logLine(text, cls) {
 }
 
 function setBusy(busy) {
-  $("convert").disabled = busy;
-  $("estimate").disabled = busy;
+  running = busy;
+  document.querySelectorAll("button.act").forEach((b) => (b.disabled = busy));
 }
 
-async function start(dryRun) {
-  const source = $("pdf").value;
-  if (!source) { alert("Choose or upload a PDF first."); return; }
+async function start(dryRun, source) {
+  if (running) return;
   setBusy(true);
   $("progressCard").classList.remove("hidden");
-  $("log").innerHTML = ""; $("downloads").innerHTML = "";
-  $("barFill").style.width = "0%"; $("tally").textContent = "";
+  $("progressTitle").textContent = (dryRun ? "Estimate — " : "Converting — ") + source;
+  $("log").innerHTML = ""; $("barFill").style.width = "0%"; $("tally").textContent = "";
   $("statusText").textContent = dryRun ? "Dry run…" : "Converting…";
 
   const fd = new FormData();
@@ -183,8 +220,7 @@ function handle(ev) {
       $("barFill").style.width = pct + "%";
       $("statusText").textContent = `Page ${ev.page} ${ev.status} — ${ev.done}/${ev.total}`;
       $("tally").textContent = `${ev.tokens.toLocaleString()} tok | ~$${ev.usd.toFixed(2)}`;
-      const cls = ev.status === "err" ? "err" : ev.status === "skip" ? "warn" : "ok";
-      logLine(`page ${ev.page}: ${ev.status}`, cls);
+      logLine(`page ${ev.page}: ${ev.status}`, ev.status === "err" ? "err" : ev.status === "skip" ? "warn" : "ok");
       break;
     }
     case "dry_run":
@@ -209,29 +245,12 @@ function handle(ev) {
     case "_end":
       if (es) es.close();
       setBusy(false);
-      showDownloads();
+      loadLibrary();
       break;
   }
 }
 
-async function showDownloads() {
-  if (!jobId) return;
-  const r = await fetch(`/api/jobs/${jobId}`);
-  const job = await r.json();
-  const files = (job.result && job.result.files) || [];
-  const box = $("downloads");
-  box.innerHTML = "";
-  for (const f of files) {
-    const a = document.createElement("a");
-    a.href = `/api/download/${jobId}/${f.kind}`;
-    a.textContent = `Download ${f.kind} (${f.name})`;
-    box.appendChild(a);
-  }
-}
-
-$("convert").onclick = () => start(false);
-$("estimate").onclick = () => start(true);
-loadPdfs();
+loadLibrary();
 </script>
 </body>
 </html>

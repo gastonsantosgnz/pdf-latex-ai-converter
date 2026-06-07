@@ -39,17 +39,41 @@ class Job:
     paths: BookPaths | None = None
 
 
+def _output_targets(paths: BookPaths) -> dict:
+    return {
+        "monolith": paths.monolith_tex,
+        "standalone": paths.standalone_tex,
+        "needs-review": paths.out_dir / "needs-review.txt",
+        "log": paths.log_file,
+    }
+
+
+def _existing_files(paths: BookPaths) -> list[dict]:
+    return [{"kind": kind, "name": p.name} for kind, p in _output_targets(paths).items() if p.exists()]
+
+
+def _needs_review_count(paths: BookPaths) -> int:
+    report = paths.out_dir / "needs-review.txt"
+    if not report.exists():
+        return 0
+    head = report.read_text(encoding="utf-8").splitlines()[:1]
+    if head and head[0].startswith("Pages needing review:"):
+        try:
+            return int(head[0].split(":", 1)[1])
+        except ValueError:
+            return 0
+    return 0
+
+
 def _result_payload(paths: BookPaths, *, dry_run: bool) -> dict:
     if dry_run:
         return {"dry_run": True, "slug": paths.slug}
-    candidates = [
-        ("monolith", paths.monolith_tex),
-        ("standalone", paths.standalone_tex),
-        ("needs-review", paths.out_dir / "needs-review.txt"),
-        ("log", paths.log_file),
-    ]
-    files = [{"kind": kind, "name": p.name} for kind, p in candidates if p.exists()]
-    return {"dry_run": False, "slug": paths.slug, "out_dir": str(paths.out_dir), "files": files}
+    return {
+        "dry_run": False,
+        "slug": paths.slug,
+        "out_dir": str(paths.out_dir),
+        "files": _existing_files(paths),
+    }
 
 
 class JobManager:
@@ -126,6 +150,48 @@ def create_app() -> FastAPI:
     def list_pdfs() -> dict:
         SOURCES_DIR.mkdir(parents=True, exist_ok=True)
         return {"pdfs": sorted(p.name for p in SOURCES_DIR.glob("*.pdf"))}
+
+    @app.get("/api/library")
+    def library() -> dict:
+        from pypdf import PdfReader
+
+        SOURCES_DIR.mkdir(parents=True, exist_ok=True)
+        items: list[dict] = []
+        summary = {"total": 0, "done": 0, "in_progress": 0, "pending": 0}
+        for pdf in sorted(SOURCES_DIR.glob("*.pdf")):
+            paths = BookPaths.for_source(pdf, output_root=OUTPUT_DIR)
+            try:
+                total = len(PdfReader(str(pdf)).pages)
+            except Exception:  # noqa: BLE001 - an unreadable PDF just shows 0 pages
+                total = 0
+            done = (
+                sum(1 for p in paths.pages_dir.glob("page_*.tex") if p.stat().st_size > 0)
+                if paths.pages_dir.exists()
+                else 0
+            )
+            status = "pending" if done == 0 else "done" if total and done >= total else "in_progress"
+            summary[status] += 1
+            summary["total"] += 1
+            items.append(
+                {
+                    "name": pdf.name,
+                    "slug": paths.slug,
+                    "total": total,
+                    "done": done,
+                    "status": status,
+                    "needs_review": _needs_review_count(paths),
+                    "files": _existing_files(paths),
+                }
+            )
+        return {"items": items, "summary": summary}
+
+    @app.get("/api/output/{slug}/{kind}")
+    def output_file(slug: str, kind: str) -> FileResponse:
+        paths = BookPaths.for_source(SOURCES_DIR / f"{slug}.pdf", output_root=OUTPUT_DIR)
+        target = _output_targets(paths).get(kind)
+        if target is None or not target.exists():
+            raise HTTPException(status_code=404, detail="file not found")
+        return FileResponse(target, filename=target.name)
 
     @app.post("/api/upload")
     async def upload(file: UploadFile = File(...)) -> dict:

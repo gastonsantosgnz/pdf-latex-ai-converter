@@ -24,8 +24,21 @@ from pdf2latex.web.app import create_app  # noqa: E402
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     sources = tmp_path / "sources"
     sources.mkdir()
+    out = tmp_path / "out"
+    out.mkdir()
     monkeypatch.setattr("pdf2latex.web.app.SOURCES_DIR", sources)
+    monkeypatch.setattr("pdf2latex.web.app.OUTPUT_DIR", out)
     return TestClient(create_app())
+
+
+def _make_pdf(path: Path, pages: int) -> None:
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    for _ in range(pages):
+        writer.add_blank_page(width=200, height=200)
+    with path.open("wb") as fh:
+        writer.write(fh)
 
 
 def _wait_done(client: TestClient, job_id: str, timeout: float = 3.0) -> dict:
@@ -122,6 +135,41 @@ def test_convert_flow_and_download(
     dl = client.get(f"/api/download/{job_id}/monolith")
     assert dl.status_code == 200
     assert "% ===== Page 1 =====" in dl.text
+
+
+def test_library_lists_and_marks_pending(client: TestClient, tmp_path: Path) -> None:
+    _make_pdf(tmp_path / "sources" / "book.pdf", 3)
+
+    data = client.get("/api/library").json()
+    assert data["summary"] == {"total": 1, "done": 0, "in_progress": 0, "pending": 1}
+    item = data["items"][0]
+    assert item["name"] == "book.pdf"
+    assert item["total"] == 3
+    assert item["done"] == 0
+    assert item["status"] == "pending"
+
+
+def test_library_marks_done(client: TestClient, tmp_path: Path) -> None:
+    _make_pdf(tmp_path / "sources" / "book.pdf", 2)
+    pages = tmp_path / "out" / "book" / "pages"
+    pages.mkdir(parents=True)
+    (pages / "page_0001.tex").write_text("x", encoding="utf-8")
+    (pages / "page_0002.tex").write_text("y", encoding="utf-8")
+
+    item = client.get("/api/library").json()["items"][0]
+    assert item["done"] == 2
+    assert item["status"] == "done"
+
+
+def test_output_download_by_slug(client: TestClient, tmp_path: Path) -> None:
+    out_dir = tmp_path / "out" / "book"
+    out_dir.mkdir(parents=True)
+    (out_dir / "book.tex").write_text("MONOLITH", encoding="utf-8")
+
+    r = client.get("/api/output/book/monolith")
+    assert r.status_code == 200
+    assert "MONOLITH" in r.text
+    assert client.get("/api/output/book/standalone").status_code == 404
 
 
 def test_sse_stream_emits_events(
