@@ -94,9 +94,11 @@ class JobManager:
                 on_event=on_event,
             )
             job.paths = paths
+            # Publish the result before flipping status to "done" so a client
+            # that keys off status never observes a finished job with no result.
+            job.result = _result_payload(paths, dry_run=params["dry_run"])
             if job.status == "running":
                 job.status = "done"
-            job.result = _result_payload(paths, dry_run=params["dry_run"])
         except (Exception, SystemExit) as exc:  # noqa: BLE001 - surfaced to the client
             job.status = "error"
             job.error = str(exc)
