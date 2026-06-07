@@ -13,7 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Offline `pytest` suite with the OpenAI client fully mocked; coverage enforced
   at 80% in CI (local coverage ~98%).
 - Open-source community files and richer package metadata (issue/PR templates,
-  Code of Conduct, `authors`/`keywords`/`classifiers`/`project.urls`).
+  Code of Conduct, Contributing guide, `authors`/`keywords`/`classifiers`/`project.urls`).
+- Cost controls for `convert`: a pre-flight summary with an approximate cost
+  estimate, a `--dry-run` flag (renders/validates pages, zero API calls), a
+  `--yes/-y` flag to skip confirmation, and a live progress bar with a running
+  token/cost tally. The per-model price table is configurable via the
+  `PDF2LATEX_PRICES` environment variable.
 
 ## [0.1.0] - 2026-06-06
 

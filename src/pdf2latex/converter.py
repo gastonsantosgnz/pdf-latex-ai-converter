@@ -6,6 +6,7 @@ so the job is resumable and can be done in batches to stay under rate limits.
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 
@@ -13,16 +14,75 @@ from pypdf import PdfReader
 
 from .assemble import assemble_monolith, write_standalone
 from .layout import BookPaths
+from .pricing import (
+    DISCLAIMER,
+    FALLBACK_MODEL,
+    cost_for_tokens,
+    estimate_cost,
+    load_prices,
+)
+from .progress import ProgressBar
 from .worker import convert_image_b64, make_client, render_page_to_base64
 
 DEFAULT_BATCH_SIZE = 100
 
 
-def _log(paths: BookPaths, msg: str) -> None:
+def _log(paths: BookPaths, msg: str, *, console: bool = True) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} | {msg}"
-    print(line, flush=True)
+    if console:
+        print(line, flush=True)
     with paths.log_file.open("a", encoding="utf-8") as f:
         f.write(line + "\n")
+
+
+def _stdin_isatty() -> bool:
+    """Whether we can prompt the user (false in CI, pipes and test runs)."""
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _pending_pages(paths: BookPaths, start_page: int, end_page: int) -> list[int]:
+    """Pages in the range that still need converting (resumable: skip done ones)."""
+    pending: list[int] = []
+    for page_num in range(start_page, end_page + 1):
+        tex = paths.page_tex(page_num)
+        if tex.exists() and tex.stat().st_size > 0:
+            continue
+        pending.append(page_num)
+    return pending
+
+
+def _log_preflight(
+    paths: BookPaths,
+    *,
+    source_pdf: Path,
+    total: int,
+    start_page: int,
+    end_page: int,
+    pending: list[int],
+    model: str,
+    profile: str,
+    scale: float,
+    prices: dict[str, tuple[float, float]],
+) -> None:
+    """Print and log a pre-flight summary, including an approximate cost range."""
+    in_range = end_page - start_page + 1
+    already = in_range - len(pending)
+    _log(paths, "Pre-flight summary:")
+    _log(paths, f"  PDF      : {source_pdf.name} ({total} pages total)")
+    _log(
+        paths,
+        f"  Range    : {start_page}-{end_page} "
+        f"({in_range} in range, {already} already done, {len(pending)} to convert)",
+    )
+    _log(paths, f"  Model    : {model}   Profile: {profile}   Scale: {scale}")
+    if pending:
+        est = estimate_cost(model, len(pending), prices=prices)
+        warn = "" if est.known_model else f"  [unknown model, priced as {FALLBACK_MODEL}]"
+        _log(paths, f"  Est. cost: ${est.usd_low:,.2f} - ${est.usd_high:,.2f}{warn}")
+        _log(paths, f"  Note     : {DISCLAIMER}")
 
 
 def resolve_range(
@@ -61,13 +121,21 @@ def convert_pdf(
     sleep_s: float = 1.0,
     title: str | None = None,
     subtitle: str | None = None,
+    dry_run: bool = False,
+    assume_yes: bool = False,
 ) -> BookPaths:
     """Convert ``source_pdf`` to per-page .tex files and (re)build the monolith.
+
+    A pre-flight summary (page count, model, profile and an approximate cost) is
+    always shown first. With ``dry_run`` the pending pages are render-validated
+    and the plan is printed without any API call. Without ``assume_yes`` an
+    interactive confirmation is required before spending on the API.
 
     Returns the resolved :class:`BookPaths` so callers can keep working with it.
     """
     paths = BookPaths.for_source(source_pdf)
     paths.ensure_dirs()
+    prices = load_prices()
 
     reader = PdfReader(str(source_pdf))
     total = len(reader.pages)
@@ -81,14 +149,66 @@ def convert_pdf(
         f"| pages {start_page}-{end_page} of {total} ---",
     )
 
+    pending = _pending_pages(paths, start_page, end_page)
+    _log_preflight(
+        paths,
+        source_pdf=source_pdf,
+        total=total,
+        start_page=start_page,
+        end_page=end_page,
+        pending=pending,
+        model=model,
+        profile=profile,
+        scale=scale,
+        prices=prices,
+    )
+
+    if dry_run:
+        rendered = render_failed = 0
+        for page_num in pending:
+            try:
+                render_page_to_base64(str(source_pdf), page_index=page_num - 1, scale=scale)
+                rendered += 1
+            except Exception as exc:  # noqa: BLE001 - report and continue
+                render_failed += 1
+                _log(paths, f"DRY  page {page_num} render FAILED -> {exc!r}")
+        suffix = f", {render_failed} failed" if render_failed else ""
+        _log(
+            paths,
+            f"DRY RUN complete: {rendered}/{len(pending)} pending page(s) render OK"
+            f"{suffix}. No API calls were made.",
+        )
+        return paths
+
+    if pending and not assume_yes:
+        if not _stdin_isatty():
+            _log(
+                paths,
+                "Refusing to start: not an interactive terminal and --yes not set. "
+                "No API calls made.",
+            )
+            return paths
+        answer = input(f"Proceed converting {len(pending)} page(s) with {model}? [y/N] ")
+        if answer.strip().lower() not in {"y", "yes"}:
+            _log(paths, "Aborted by user. No API calls made.")
+            return paths
+
     client = make_client()
     ok = failed = 0
+    tot_prompt = tot_completion = tot_tokens = 0
+    bar = ProgressBar(end_page - start_page + 1)
+    quiet = bar.enabled  # when the live bar is on, keep per-page lines out of stdout
+
+    def _tally_note() -> str:
+        usd = cost_for_tokens(model, tot_prompt, tot_completion, prices=prices)
+        return f"{tot_tokens:,} tok | ~${usd:,.2f}"
 
     for page_num in range(start_page, end_page + 1):
         page_tex = paths.page_tex(page_num)
         if page_tex.exists() and page_tex.stat().st_size > 0:
-            _log(paths, f"SKIP page {page_num} (already converted)")
+            _log(paths, f"SKIP page {page_num} (already converted)", console=not quiet)
             ok += 1
+            bar.update(advance=1, note=_tally_note())
             continue
 
         try:
@@ -107,19 +227,31 @@ def convert_pdf(
                     f"total_tokens={result.total_tokens}\n",
                     encoding="utf-8",
                 )
+                tot_prompt += result.prompt_tokens
+                tot_completion += result.completion_tokens
+                tot_tokens += result.total_tokens
             ok += 1
             extra = "" if result.finish_reason in (None, "stop") else f" [{result.finish_reason}]"
-            _log(paths, f"OK   page {page_num}{extra}")
+            _log(paths, f"OK   page {page_num}{extra}", console=not quiet)
         except Exception as exc:  # noqa: BLE001 - record and continue
             failed += 1
             paths.pages_dir.joinpath(f"page_{page_num:04d}.err.txt").write_text(
                 repr(exc), encoding="utf-8"
             )
-            _log(paths, f"ERR  page {page_num} -> {exc!r}")
+            _log(paths, f"ERR  page {page_num} -> {exc!r}", console=not quiet)
+        bar.update(advance=1, note=_tally_note())
+
+    bar.close()
 
     assemble_monolith(paths)
     write_standalone(paths, title=title, subtitle=subtitle)
-    _log(paths, f"Done. OK={ok} FAIL={failed} | assembled -> {paths.monolith_tex.name}")
+    actual = cost_for_tokens(model, tot_prompt, tot_completion, prices=prices)
+    _log(
+        paths,
+        f"Done. OK={ok} FAIL={failed} | tokens={tot_tokens:,} "
+        f"(prompt={tot_prompt:,}, completion={tot_completion:,}) | "
+        f"actual cost ~${actual:,.2f} | assembled -> {paths.monolith_tex.name}",
+    )
 
     if end_page < total:
         nxt = end_page + 1

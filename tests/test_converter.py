@@ -79,7 +79,7 @@ def test_convert_pdf_happy_path(
         return PageResult(latex="LATEX", total_tokens=3, finish_reason="stop")
 
     _stub_pipeline(monkeypatch, fake_convert)
-    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0)
+    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0, assume_yes=True)
 
     monolith = paths.monolith_tex.read_text(encoding="utf-8")
     assert monolith.count("% ===== Page") == 3
@@ -102,7 +102,7 @@ def test_convert_pdf_skips_already_converted(
         return PageResult(latex="NEW", total_tokens=1)
 
     _stub_pipeline(monkeypatch, fake_convert)
-    convert_pdf(pdf, model="gpt-4o", sleep_s=0)
+    convert_pdf(pdf, model="gpt-4o", sleep_s=0, assume_yes=True)
 
     # Page 1 (img-0) is skipped; only pages 2 and 3 hit the model.
     assert converted == ["img-1", "img-2"]
@@ -120,7 +120,7 @@ def test_convert_pdf_records_errors_and_continues(
         return PageResult(latex="OK", total_tokens=1)
 
     _stub_pipeline(monkeypatch, fake_convert)
-    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0)
+    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0, assume_yes=True)
 
     assert (paths.pages_dir / "page_0002.err.txt").exists()
     assert paths.page_tex(1).exists()
@@ -137,7 +137,76 @@ def test_convert_pdf_prints_next_batch_hint(
         return PageResult(latex="OK", total_tokens=1)
 
     _stub_pipeline(monkeypatch, fake_convert)
-    convert_pdf(pdf, model="gpt-4o", batch=1, batch_size=2, sleep_s=0)
+    convert_pdf(pdf, model="gpt-4o", batch=1, batch_size=2, sleep_s=0, assume_yes=True)
 
     out = capsys.readouterr().out
     assert "Next batch" in out
+
+
+# --------------------------------------------------------------------------- #
+# Feature 4: pre-flight, dry-run and confirmation                             #
+# --------------------------------------------------------------------------- #
+def test_convert_pdf_dry_run_makes_no_api_calls(
+    tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    pdf = _make_pdf(tmp_path / "book.pdf", pages=3)
+
+    def boom():  # make_client must never be called in a dry run
+        raise AssertionError("make_client was called during --dry-run")
+
+    monkeypatch.setattr(
+        converter, "render_page_to_base64", lambda pdf, page_index=0, scale=2.0: "img"
+    )
+    monkeypatch.setattr(converter, "make_client", boom)
+
+    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0, dry_run=True)
+
+    out = capsys.readouterr().out
+    assert "DRY RUN complete" in out
+    assert "Est. cost" in out  # pre-flight estimate was shown
+    assert not paths.page_tex(1).exists()  # nothing converted
+
+
+def test_convert_pdf_aborts_when_not_tty_and_no_yes(
+    tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf = _make_pdf(tmp_path / "book.pdf", pages=2)
+    monkeypatch.setattr(converter, "_stdin_isatty", lambda: False)
+    monkeypatch.setattr(
+        converter, "make_client", lambda: (_ for _ in ()).throw(AssertionError("called"))
+    )
+
+    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0)  # no assume_yes, no TTY
+    assert not paths.page_tex(1).exists()
+
+
+def test_convert_pdf_interactive_decline_aborts(
+    tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf = _make_pdf(tmp_path / "book.pdf", pages=2)
+    monkeypatch.setattr(converter, "_stdin_isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *_a: "n")
+    monkeypatch.setattr(
+        converter, "make_client", lambda: (_ for _ in ()).throw(AssertionError("called"))
+    )
+
+    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0)
+    assert not paths.page_tex(1).exists()
+
+
+def test_convert_pdf_interactive_accept_converts(
+    tmp_path: Path, out_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf = _make_pdf(tmp_path / "book.pdf", pages=2)
+    monkeypatch.setattr(converter, "_stdin_isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *_a: "y")
+
+    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+        return PageResult(latex="OK", prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+    _stub_pipeline(monkeypatch, fake_convert)
+    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0)
+
+    assert paths.page_tex(1).read_text(encoding="utf-8") == "OK"
+    # Token tally is written to the run log.
+    assert "actual cost" in paths.log_file.read_text(encoding="utf-8")

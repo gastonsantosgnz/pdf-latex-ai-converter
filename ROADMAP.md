@@ -70,7 +70,7 @@ safe, without spending a cent on the OpenAI API.
 
 ---
 
-## 4. Cost preflight, `--dry-run` and live progress — `planned`
+## 4. Cost preflight, `--dry-run` and live progress — `done`
 
 **Goal.** No surprises on the OpenAI bill. Let users preview scope and cost
 before committing to a long conversion, and follow progress while it runs.

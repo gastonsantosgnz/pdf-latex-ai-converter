@@ -81,6 +81,9 @@ cp .env.example .env       # Windows: copy .env.example .env
 # See what's available
 pdf2latex list
 
+# Preview scope and approximate cost first (renders pages, makes zero API calls)
+pdf2latex convert "My Book.pdf" --profile dense --dry-run
+
 # Convert the whole document (small PDFs)
 pdf2latex convert "My Book.pdf" --profile dense
 
@@ -117,7 +120,7 @@ pdf2latex compile "My Book"
 | Command | What it does |
 |---|---|
 | `pdf2latex list` | List PDFs in `sources/`. |
-| `pdf2latex convert <pdf>` | Convert pages → `.tex`, then assemble. Flags: `--profile`, `--batch`, `--batch-size`, `--start`, `--end`, `--model`, `--max-tokens`, `--scale`, `--title`, `--subtitle`. |
+| `pdf2latex convert <pdf>` | Convert pages → `.tex`, then assemble. Flags: `--profile`, `--batch`, `--batch-size`, `--start`, `--end`, `--model`, `--max-tokens`, `--scale`, `--title`, `--subtitle`, `--dry-run`, `--yes/-y`. |
 | `pdf2latex assemble <pdf\|slug>` | Rebuild the monolith + standalone from existing pages. |
 | `pdf2latex split <pdf\|slug>` | Split into chapters: `--config <file.json>` or `--auto`. |
 | `pdf2latex compile <pdf\|slug>` | Compile the standalone `.tex` to PDF: `--engine`, `--runs`. |
@@ -162,6 +165,23 @@ output/Book/Book-standalone.tex  ──pdflatex──▶  Book-standalone.pdf
 
 - Use `--profile dense` for textbooks with many tables, diagrams and photos.
 - Use `--batch N` to convert large books in chunks and resume safely.
+- Preview before you spend: `pdf2latex convert <pdf> --dry-run` prints a
+  pre-flight summary (pages in range, model, profile and an **approximate** cost
+  range), render-validates the pages and makes **zero API calls**.
+- Every `convert` shows that pre-flight summary and asks for confirmation before
+  spending. Pass `--yes` (or `-y`) to skip the prompt in scripts and CI.
+- The cost figure is an estimate. Override the per-model price table without
+  editing code by pointing `PDF2LATEX_PRICES` at a JSON file, where each value is
+  `[input_usd_per_1M_tokens, output_usd_per_1M_tokens]`:
+
+  ```bash
+  echo '{ "gpt-4o": [2.5, 10.0], "my-model": [1.0, 3.0] }' > prices.json
+  PDF2LATEX_PRICES=prices.json pdf2latex convert "My Book.pdf" --dry-run
+  ```
+
+- On an interactive terminal a live progress bar shows a running token/cost
+  tally; in non-interactive runs (CI, redirected logs) it degrades to the plain
+  per-page log lines so nothing is garbled.
 - The model can occasionally produce a `tabular` whose column count doesn't match
   a row, or a list that needs closing. Check `output/<slug>/log.txt` and the
   `pdflatex` log; fix the few flagged pages by editing the page `.tex`.

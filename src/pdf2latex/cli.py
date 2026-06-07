@@ -51,6 +51,8 @@ def _cmd_convert(args: argparse.Namespace) -> int:
         scale=args.scale,
         title=args.title,
         subtitle=args.subtitle,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
     )
     return 0
 
@@ -118,6 +120,17 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--scale", type=float, default=2.0, help="Render scale (resolution).")
     pc.add_argument("--title", default=None)
     pc.add_argument("--subtitle", default=None)
+    pc.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show the plan and cost estimate, render-validate pages; no API calls.",
+    )
+    pc.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip the confirmation prompt (for non-interactive/automated runs).",
+    )
     pc.set_defaults(func=_cmd_convert)
 
     pa = sub.add_parser("assemble", help="Rebuild monolith + standalone from pages.")
