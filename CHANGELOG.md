@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   estimate, a single-page test before a full run, live progress over
   Server-Sent Events, and result downloads. Backed by a new `on_event` progress
   hook on `convert_pdf`.
+- Prompt hardening against page overflow: a "Page layout" rule stops the model
+  trapping a whole page of definitions/figures in one unbreakable `tabular`/
+  `minipage` (which left a page half-empty and overflowed onto the next). It now
+  emits a separate minipage pair per item so pages break naturally — verified by
+  re-running a dense geometry page (four diagrams) with zero `Overfull \vbox`.
 - Model picker as three tiers: the model dropdown is now a segmented button
   control — **Cheaper** (`gpt-5-mini`), **Balanced** (`gpt-5`, default) and
   **Best** (`gpt-5.5`) — matching the Workers control, with a one-line
