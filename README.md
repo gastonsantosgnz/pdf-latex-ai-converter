@@ -120,7 +120,7 @@ pdf2latex compile "My Book"
 | Command | What it does |
 |---|---|
 | `pdf2latex list` | List PDFs in `sources/`. |
-| `pdf2latex convert <pdf>` | Convert pages → `.tex`, then assemble. Flags: `--profile`, `--batch`, `--batch-size`, `--start`, `--end`, `--model`, `--max-tokens`, `--scale`, `--title`, `--subtitle`, `--dry-run`, `--yes/-y`. |
+| `pdf2latex convert <pdf>` | Convert pages → `.tex`, then assemble. Flags: `--profile`, `--batch`, `--batch-size`, `--start`, `--end`, `--model`, `--max-tokens`, `--scale`, `--workers`, `--rpm`, `--tpm`, `--title`, `--subtitle`, `--dry-run`, `--yes/-y`. |
 | `pdf2latex assemble <pdf\|slug>` | Rebuild the monolith + standalone from existing pages. |
 | `pdf2latex split <pdf\|slug>` | Split into chapters: `--config <file.json>` or `--auto`. |
 | `pdf2latex compile <pdf\|slug>` | Compile the standalone `.tex` to PDF: `--engine`, `--runs`. |
@@ -165,6 +165,11 @@ output/Book/Book-standalone.tex  ──pdflatex──▶  Book-standalone.pdf
 
 - Use `--profile dense` for textbooks with many tables, diagrams and photos.
 - Use `--batch N` to convert large books in chunks and resume safely.
+- Pages convert concurrently (default `--workers 4`), which cuts wall-clock time
+  on large books. Use `--workers 1` for strictly sequential behaviour. If your
+  account hits provider rate limits, cap throughput with `--rpm` (requests per
+  minute) and/or `--tpm` (tokens per minute); 429s are also retried with
+  exponential backoff automatically.
 - Preview before you spend: `pdf2latex convert <pdf> --dry-run` prints a
   pre-flight summary (pages in range, model, profile and an **approximate** cost
   range), render-validates the pages and makes **zero API calls**.

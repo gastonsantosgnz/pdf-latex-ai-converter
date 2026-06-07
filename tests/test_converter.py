@@ -79,7 +79,7 @@ def test_convert_pdf_happy_path(
         return PageResult(latex="LATEX", total_tokens=3, finish_reason="stop")
 
     _stub_pipeline(monkeypatch, fake_convert)
-    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0, assume_yes=True)
+    paths = convert_pdf(pdf, model="gpt-4o", assume_yes=True)
 
     monolith = paths.monolith_tex.read_text(encoding="utf-8")
     assert monolith.count("% ===== Page") == 3
@@ -102,10 +102,11 @@ def test_convert_pdf_skips_already_converted(
         return PageResult(latex="NEW", total_tokens=1)
 
     _stub_pipeline(monkeypatch, fake_convert)
-    convert_pdf(pdf, model="gpt-4o", sleep_s=0, assume_yes=True)
+    convert_pdf(pdf, model="gpt-4o", assume_yes=True)
 
-    # Page 1 (img-0) is skipped; only pages 2 and 3 hit the model.
-    assert converted == ["img-1", "img-2"]
+    # Page 1 (img-0) is skipped; only pages 2 and 3 hit the model. Order is not
+    # guaranteed under concurrency, so compare as a set.
+    assert sorted(converted) == ["img-1", "img-2"]
     assert pre.page_tex(1).read_text(encoding="utf-8") == "ALREADY"
 
 
@@ -120,7 +121,7 @@ def test_convert_pdf_records_errors_and_continues(
         return PageResult(latex="OK", total_tokens=1)
 
     _stub_pipeline(monkeypatch, fake_convert)
-    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0, assume_yes=True)
+    paths = convert_pdf(pdf, model="gpt-4o", assume_yes=True)
 
     assert (paths.pages_dir / "page_0002.err.txt").exists()
     assert paths.page_tex(1).exists()
@@ -137,7 +138,7 @@ def test_convert_pdf_prints_next_batch_hint(
         return PageResult(latex="OK", total_tokens=1)
 
     _stub_pipeline(monkeypatch, fake_convert)
-    convert_pdf(pdf, model="gpt-4o", batch=1, batch_size=2, sleep_s=0, assume_yes=True)
+    convert_pdf(pdf, model="gpt-4o", batch=1, batch_size=2, assume_yes=True)
 
     out = capsys.readouterr().out
     assert "Next batch" in out
@@ -159,7 +160,7 @@ def test_convert_pdf_dry_run_makes_no_api_calls(
     )
     monkeypatch.setattr(converter, "make_client", boom)
 
-    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0, dry_run=True)
+    paths = convert_pdf(pdf, model="gpt-4o", dry_run=True)
 
     out = capsys.readouterr().out
     assert "DRY RUN complete" in out
@@ -176,7 +177,7 @@ def test_convert_pdf_aborts_when_not_tty_and_no_yes(
         converter, "make_client", lambda: (_ for _ in ()).throw(AssertionError("called"))
     )
 
-    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0)  # no assume_yes, no TTY
+    paths = convert_pdf(pdf, model="gpt-4o")  # no assume_yes, no TTY
     assert not paths.page_tex(1).exists()
 
 
@@ -190,7 +191,7 @@ def test_convert_pdf_interactive_decline_aborts(
         converter, "make_client", lambda: (_ for _ in ()).throw(AssertionError("called"))
     )
 
-    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0)
+    paths = convert_pdf(pdf, model="gpt-4o")
     assert not paths.page_tex(1).exists()
 
 
@@ -205,8 +206,53 @@ def test_convert_pdf_interactive_accept_converts(
         return PageResult(latex="OK", prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
     _stub_pipeline(monkeypatch, fake_convert)
-    paths = convert_pdf(pdf, model="gpt-4o", sleep_s=0)
+    paths = convert_pdf(pdf, model="gpt-4o")
 
     assert paths.page_tex(1).read_text(encoding="utf-8") == "OK"
     # Token tally is written to the run log.
     assert "actual cost" in paths.log_file.read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Feature 5: parallel conversion                                              #
+# --------------------------------------------------------------------------- #
+def test_parallel_output_matches_sequential_byte_for_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf = _make_pdf(tmp_path / "book.pdf", pages=6)
+    roots = {"current": tmp_path / "seq"}
+    real_for_source = BookPaths.for_source
+    monkeypatch.setattr(
+        converter,
+        "BookPaths",
+        SimpleNamespace(for_source=lambda src: real_for_source(src, output_root=roots["current"])),
+    )
+    monkeypatch.setattr(
+        converter, "render_page_to_base64", lambda pdf, page_index=0, scale=2.0: f"img-{page_index}"
+    )
+    monkeypatch.setattr(converter, "make_client", lambda: object())
+
+    def fake_convert(client, img_b64, *, model, max_tokens, profile):
+        # Page-dependent content so the monolith reflects ordering faithfully.
+        return PageResult(latex=f"PAGE[{img_b64}]", prompt_tokens=1, completion_tokens=2, total_tokens=3)
+
+    monkeypatch.setattr(converter, "convert_image_b64", fake_convert)
+
+    roots["current"] = tmp_path / "seq"
+    seq = convert_pdf(pdf, model="gpt-4o", workers=1, assume_yes=True)
+    seq_bytes = seq.monolith_tex.read_bytes()
+
+    roots["current"] = tmp_path / "par"
+    par = convert_pdf(pdf, model="gpt-4o", workers=4, assume_yes=True)
+    par_bytes = par.monolith_tex.read_bytes()
+
+    assert seq_bytes == par_bytes  # same artifact regardless of worker count
+    assert par_bytes.count(b"% ===== Page") == 6
+
+    # Even under concurrency, the log records pages in order (no interleaving).
+    ok_pages = [
+        int(line.split("OK   page ")[1].split()[0])
+        for line in par.log_file.read_text(encoding="utf-8").splitlines()
+        if "OK   page " in line
+    ]
+    assert ok_pages == sorted(ok_pages) == [1, 2, 3, 4, 5, 6]

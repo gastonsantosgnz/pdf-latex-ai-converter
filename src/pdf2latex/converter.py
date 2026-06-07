@@ -7,7 +7,9 @@ so the job is resumable and can be done in batches to stay under rate limits.
 from __future__ import annotations
 
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from pypdf import PdfReader
@@ -15,6 +17,8 @@ from pypdf import PdfReader
 from .assemble import assemble_monolith, write_standalone
 from .layout import BookPaths
 from .pricing import (
+    DEFAULT_INPUT_TOKENS_PER_PAGE,
+    DEFAULT_OUTPUT_TOKENS_PER_PAGE,
     DISCLAIMER,
     FALLBACK_MODEL,
     cost_for_tokens,
@@ -22,17 +26,23 @@ from .pricing import (
     load_prices,
 )
 from .progress import ProgressBar
+from .ratelimit import RateLimiter
 from .worker import convert_image_b64, make_client, render_page_to_base64
 
 DEFAULT_BATCH_SIZE = 100
+DEFAULT_WORKERS = 4
+
+# Guards the shared log so concurrent worker threads never interleave a line.
+_LOG_LOCK = threading.Lock()
 
 
 def _log(paths: BookPaths, msg: str, *, console: bool = True) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} | {msg}"
-    if console:
-        print(line, flush=True)
-    with paths.log_file.open("a", encoding="utf-8") as f:
-        f.write(line + "\n")
+    with _LOG_LOCK:
+        if console:
+            print(line, flush=True)
+        with paths.log_file.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
 
 
 def _stdin_isatty() -> bool:
@@ -65,11 +75,16 @@ def _log_preflight(
     model: str,
     profile: str,
     scale: float,
+    workers: int,
+    rpm: float | None,
+    tpm: float | None,
     prices: dict[str, tuple[float, float]],
 ) -> None:
     """Print and log a pre-flight summary, including an approximate cost range."""
     in_range = end_page - start_page + 1
     already = in_range - len(pending)
+    limits = [f"{name}={val:g}" for name, val in (("rpm", rpm), ("tpm", tpm)) if val]
+    rate = f"   Rate limit: {', '.join(limits)}" if limits else ""
     _log(paths, "Pre-flight summary:")
     _log(paths, f"  PDF      : {source_pdf.name} ({total} pages total)")
     _log(
@@ -78,6 +93,7 @@ def _log_preflight(
         f"({in_range} in range, {already} already done, {len(pending)} to convert)",
     )
     _log(paths, f"  Model    : {model}   Profile: {profile}   Scale: {scale}")
+    _log(paths, f"  Workers  : {max(1, workers)}{rate}")
     if pending:
         est = estimate_cost(model, len(pending), prices=prices)
         warn = "" if est.known_model else f"  [unknown model, priced as {FALLBACK_MODEL}]"
@@ -118,7 +134,9 @@ def convert_pdf(
     end: int | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
     scale: float = 2.0,
-    sleep_s: float = 1.0,
+    workers: int = DEFAULT_WORKERS,
+    rpm: float | None = None,
+    tpm: float | None = None,
     title: str | None = None,
     subtitle: str | None = None,
     dry_run: bool = False,
@@ -130,6 +148,11 @@ def convert_pdf(
     always shown first. With ``dry_run`` the pending pages are render-validated
     and the plan is printed without any API call. Without ``assume_yes`` an
     interactive confirmation is required before spending on the API.
+
+    Pages are converted concurrently with up to ``workers`` threads (the job
+    stays resumable, so already-converted pages are skipped). An optional
+    :class:`~pdf2latex.ratelimit.RateLimiter` (``rpm``/``tpm``) paces the API
+    calls; ``workers=1`` reproduces the strictly sequential behaviour.
 
     Returns the resolved :class:`BookPaths` so callers can keep working with it.
     """
@@ -160,6 +183,9 @@ def convert_pdf(
         model=model,
         profile=profile,
         scale=scale,
+        workers=workers,
+        rpm=rpm,
+        tpm=tpm,
         prices=prices,
     )
 
@@ -194,6 +220,9 @@ def convert_pdf(
             return paths
 
     client = make_client()
+    limiter = RateLimiter(rpm=rpm, tpm=tpm)
+    est_tokens = DEFAULT_INPUT_TOKENS_PER_PAGE + DEFAULT_OUTPUT_TOKENS_PER_PAGE
+
     ok = failed = 0
     tot_prompt = tot_completion = tot_tokens = 0
     bar = ProgressBar(end_page - start_page + 1)
@@ -203,43 +232,51 @@ def convert_pdf(
         usd = cost_for_tokens(model, tot_prompt, tot_completion, prices=prices)
         return f"{tot_tokens:,} tok | ~${usd:,.2f}"
 
-    for page_num in range(start_page, end_page + 1):
+    def _convert_one(page_num: int):
+        """Convert one page in a worker thread; mutates no shared state."""
+        limiter.acquire(est_tokens)
+        img_b64 = render_page_to_base64(str(source_pdf), page_index=page_num - 1, scale=scale)
+        result = convert_image_b64(
+            client, img_b64, model=model, max_tokens=max_tokens, profile=profile
+        )
         page_tex = paths.page_tex(page_num)
-        if page_tex.exists() and page_tex.stat().st_size > 0:
-            _log(paths, f"SKIP page {page_num} (already converted)", console=not quiet)
-            ok += 1
-            bar.update(advance=1, note=_tally_note())
-            continue
+        page_tex.write_text(result.latex, encoding="utf-8")
+        if result.total_tokens:
+            page_tex.with_suffix(".usage.txt").write_text(
+                f"model={model} prompt_tokens={result.prompt_tokens} "
+                f"completion_tokens={result.completion_tokens} "
+                f"total_tokens={result.total_tokens}\n",
+                encoding="utf-8",
+            )
+        return result
 
-        try:
-            time.sleep(sleep_s)
-            img_b64 = render_page_to_base64(
-                str(source_pdf), page_index=page_num - 1, scale=scale
-            )
-            result = convert_image_b64(
-                client, img_b64, model=model, max_tokens=max_tokens, profile=profile
-            )
-            page_tex.write_text(result.latex, encoding="utf-8")
-            if result.total_tokens:
-                page_tex.with_suffix(".usage.txt").write_text(
-                    f"model={model} prompt_tokens={result.prompt_tokens} "
-                    f"completion_tokens={result.completion_tokens} "
-                    f"total_tokens={result.total_tokens}\n",
-                    encoding="utf-8",
+    pending_set = set(pending)
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = {page_num: pool.submit(_convert_one, page_num) for page_num in pending}
+        # Consume in page order: counters/logs stay deterministic even when
+        # workers > 1, while the conversions themselves run concurrently.
+        for page_num in range(start_page, end_page + 1):
+            if page_num not in pending_set:
+                _log(paths, f"SKIP page {page_num} (already converted)", console=not quiet)
+                ok += 1
+                bar.update(advance=1, note=_tally_note())
+                continue
+            try:
+                result = futures[page_num].result()
+                if result.total_tokens:
+                    tot_prompt += result.prompt_tokens
+                    tot_completion += result.completion_tokens
+                    tot_tokens += result.total_tokens
+                ok += 1
+                extra = "" if result.finish_reason in (None, "stop") else f" [{result.finish_reason}]"
+                _log(paths, f"OK   page {page_num}{extra}", console=not quiet)
+            except Exception as exc:  # noqa: BLE001 - record and continue
+                failed += 1
+                paths.pages_dir.joinpath(f"page_{page_num:04d}.err.txt").write_text(
+                    repr(exc), encoding="utf-8"
                 )
-                tot_prompt += result.prompt_tokens
-                tot_completion += result.completion_tokens
-                tot_tokens += result.total_tokens
-            ok += 1
-            extra = "" if result.finish_reason in (None, "stop") else f" [{result.finish_reason}]"
-            _log(paths, f"OK   page {page_num}{extra}", console=not quiet)
-        except Exception as exc:  # noqa: BLE001 - record and continue
-            failed += 1
-            paths.pages_dir.joinpath(f"page_{page_num:04d}.err.txt").write_text(
-                repr(exc), encoding="utf-8"
-            )
-            _log(paths, f"ERR  page {page_num} -> {exc!r}", console=not quiet)
-        bar.update(advance=1, note=_tally_note())
+                _log(paths, f"ERR  page {page_num} -> {exc!r}", console=not quiet)
+            bar.update(advance=1, note=_tally_note())
 
     bar.close()
 

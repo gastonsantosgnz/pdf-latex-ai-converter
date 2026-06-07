@@ -94,7 +94,7 @@ before committing to a long conversion, and follow progress while it runs.
 
 ---
 
-## 5. Parallel page conversion with rate-limit awareness — `planned`
+## 5. Parallel page conversion with rate-limit awareness — `done`
 
 **Goal.** Cut wall-clock time for large books from hours to minutes by converting
 independent pages concurrently, without tripping the provider's rate limits.

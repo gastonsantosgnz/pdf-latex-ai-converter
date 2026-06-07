@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--yes/-y` flag to skip confirmation, and a live progress bar with a running
   token/cost tally. The per-model price table is configurable via the
   `PDF2LATEX_PRICES` environment variable.
+- Parallel page conversion: a bounded thread pool (`--workers`, default 4) with
+  thread-safe logging and a token-bucket rate limiter (`--rpm`/`--tpm`) that
+  replaces the old fixed delay. `--workers 1` reproduces the sequential output
+  byte for byte.
 
 ## [0.1.0] - 2026-06-06
 

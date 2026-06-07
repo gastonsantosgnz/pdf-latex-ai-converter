@@ -49,6 +49,9 @@ def _cmd_convert(args: argparse.Namespace) -> int:
         end=args.end,
         batch_size=args.batch_size,
         scale=args.scale,
+        workers=args.workers,
+        rpm=args.rpm,
+        tpm=args.tpm,
         title=args.title,
         subtitle=args.subtitle,
         dry_run=args.dry_run,
@@ -118,6 +121,16 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--start", type=int, default=None, help="First page (1-based).")
     pc.add_argument("--end", type=int, default=None, help="Last page (inclusive).")
     pc.add_argument("--scale", type=float, default=2.0, help="Render scale (resolution).")
+    # Default mirrors converter.DEFAULT_WORKERS (kept literal to avoid importing the
+    # heavy converter module just to build the parser).
+    pc.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Pages converted concurrently (default 4; use 1 for sequential).",
+    )
+    pc.add_argument("--rpm", type=float, default=None, help="Optional requests-per-minute cap.")
+    pc.add_argument("--tpm", type=float, default=None, help="Optional tokens-per-minute cap.")
     pc.add_argument("--title", default=None)
     pc.add_argument("--subtitle", default=None)
     pc.add_argument(
