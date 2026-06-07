@@ -28,8 +28,9 @@ user keeps output outside the repo (ask if unsure; otherwise the default `./outp
    Key points: wrap every `_`/`^` in `\( \)`; tabular/array column count = max `&` in a
    row + 1; never put a whole page of figures in ONE unbreakable tabular/minipage (use
    a separate minipage pair per item so pages break naturally); reproduce diagrams with
-   `tikzpicture`; escape `_ # % &` in text; output ONLY the page body (no preamble,
-   no `\documentclass`, no code fences).
+   `tikzpicture`; escape `_ # % &` in text; replace a decorative photo with a framed
+   placeholder box **plus an AI re-creation prompt** (`Prompt IA: ...`) instead of a
+   bare omission; output ONLY the page body (no preamble, no `\documentclass`, no fences).
 
 3. **Render the pending pages to images:**
    ```bash
@@ -75,6 +76,31 @@ A 255-page dense geometry batch converted this way in ~35 min with 51 agents, an
 - Give each agent the exact rules, the page-style template, the available packages, and
   the MUST-COMPILE constraints; have it return `{written:[...], flagged:[...]}` where
   `flagged` lists pages whose diagrams it could only approximate (for a later visual pass).
+
+## Agent roles — where specialization helps (and where it doesn't)
+
+Tempting idea: per page, run separate agents for text / math / diagrams / a coherence
+review. In practice, splitting ONE page across content-layer agents is a net loss:
+- A page is a single coupled artifact — inline math sits inside sentences, table cells
+  hold formulas, figures carry math labels. Re-stitching the layers back into the right
+  places is fragile and error-prone.
+- Every specialist must read the SAME page image, so you pay the (dominant) vision-token
+  cost 3–4× per page for little gain.
+- It adds serial latency per page; the real speedup came from parallelism ACROSS pages,
+  not from slicing within a page.
+
+What DOES help — two axes of specialization, each as its own fleet/phase:
+1. **Route by PAGE TYPE**, with one agent still doing the *whole* page under a tuned
+   prompt: prose, table-heavy, diagram-heavy, photo. Diagram-heavy pages need the most
+   care and benefit from a dedicated second pass.
+2. **A separate VERIFY/COHERENCE phase** after transcription: an agent (or a compile +
+   render-diff) that compares the rendered page against the original and flags/fixes
+   mismatches. Highest-value addition — keep transcription and verification as distinct
+   phases, never as layers within one page.
+
+Recommended pipeline: **classify → transcribe (type-tuned, whole page) → compile/validate
+→ refine diagrams (focused pass over figure-dense pages) → verify against the original.**
+A 255-page run + a 112-page diagram-refine pass followed exactly this shape.
 
 ## Per-page validation (find every broken page at once)
 

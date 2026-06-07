@@ -122,13 +122,19 @@ Degrees:
 DENSE_RULES = r"""
 
 Tables, diagrams and photos:
-Photographs and non-academic imagery:
-- Realistic photos (people, scenery, stock, portraits, visual "filler"): do NOT
-  reproduce them with \includegraphics and do NOT describe the scene. If there is
-  a legible caption/epigraph/educational title next to the image, transcribe only
-  that text (and the figure number if present).
-- If a page is almost entirely photos with no recoverable text or formulas,
-  return a single line: % photo-omitted
+Photographs and non-academic imagery (placeholder + AI re-creation prompt):
+- For a realistic photo (people, scenery, stock, portrait, product shot, visual
+  "filler"): do NOT use \includegraphics. Instead emit a framed placeholder that
+  also carries a short visual description written as an AI image-generation prompt,
+  so the picture can be regenerated later. Use exactly this shape:
+    \begin{center}
+    \fbox{\parbox{0.8\linewidth}{\centering\textit{[Imagen]}\\[3pt]
+    \footnotesize\textbf{Prompt IA:} concise description to recreate the image --
+    subject, setting, style, colours, composition}}
+    \end{center}
+  Also transcribe any real caption/epigraph/figure number next to the image.
+- Use % photo-omitted ONLY for a purely decorative band/texture/gradient that
+  carries no information worth a prompt.
 
 Content you MUST include (in full):
 - Data tables, didactic tables, synoptic charts with cells: {tabular} or {table}
@@ -151,7 +157,8 @@ SYSTEM_PROMPT = BASE_SYSTEM_PROMPT + DENSE_RULES
 USER_TEXT = (
     "Convert this page to LaTeX with full fidelity: all text and math in the "
     "original language; full tables, diagrams and geometric/didactic figures; "
-    "omit non-academic photographs (or use % photo-omitted if the page is only a "
+    "replace non-academic photographs with a labelled placeholder box plus a short "
+    "AI image-generation prompt (use % photo-omitted only for a purely decorative "
     "photo); no decorative colors; keep chapter/topic headings. Do not answer "
     "with only % blank-page if there is text, tables or academic figures."
 )
