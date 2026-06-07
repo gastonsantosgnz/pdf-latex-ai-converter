@@ -250,6 +250,80 @@ def repair_latex(
     )
 
 
+def repair_with_image(
+    client,
+    img_b64: str,
+    latex: str,
+    problems: list[str],
+    *,
+    model: str,
+    max_tokens: int = 8192,
+    rate_limit_retries: int = 5,
+    guard: bool = True,
+) -> PageResult:
+    """Fix a page using BOTH its source image and the compile error.
+
+    Stronger than the text-only :func:`repair_latex`: with the original page in
+    view the model can reconstruct a broken table or rebuild math it could only
+    guess at from the text. The same :func:`assess_repair` guard applies, so a
+    runaway or destructive fix is flagged via ``PageResult.rejected`` instead of
+    overwriting good content.
+    """
+    system_prompt = (
+        "You are correcting one page of LaTeX transcribed from the textbook image "
+        "shown. The current LaTeX fails to compile with pdflatex. Return ONLY the "
+        "corrected LaTeX for this page: no preamble, no \\documentclass, no Markdown "
+        "fences. Match the image faithfully and keep the original language. Make the "
+        "tabular/array column spec equal the widest row (max & in a row + 1); never "
+        "nest align*/aligned/array inside \\[ \\]; wrap every subscript/superscript "
+        "(_ ^) in \\( \\); put \\hline on its own line; balance \\left/\\right; close "
+        "every environment and balance every { }."
+    )
+    problem_list = "\n".join(f"- {p}" for p in problems) or "- (unspecified)"
+    user_text = (
+        "The current LaTeX for the page in the image has these problems:\n"
+        f"{problem_list}\n\n"
+        "Here is the current (broken) LaTeX. Return the corrected version of the "
+        "whole page:\n\n"
+        f"{latex}"
+    )
+    messages: list = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{img_b64}",
+                        "detail": "high",
+                    },
+                },
+                {"type": "text", "text": user_text},
+            ],
+        },
+    ]
+    response = _create_with_backoff(
+        client,
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        retries=rate_limit_retries,
+    )
+    choice = response.choices[0]
+    usage = response.usage
+    fixed = strip_code_fences(choice.message.content or "")
+    rejected = assess_repair(latex, fixed) if guard else None
+    return PageResult(
+        latex=fixed,
+        prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+        completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+        total_tokens=getattr(usage, "total_tokens", 0) or 0,
+        finish_reason=getattr(choice, "finish_reason", None),
+        rejected=rejected,
+    )
+
+
 def _create_with_backoff(client, *, model, messages, max_tokens, retries):
     for attempt in range(retries):
         try:

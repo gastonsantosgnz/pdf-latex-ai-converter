@@ -121,6 +121,19 @@ pdf2latex compile "My Book"
 # -> output/My-Book/My-Book-standalone.pdf
 ```
 
+### 6. Auto-repair pages that don't compile
+
+If the build fails on a few pages, let the model fix them: `fix` compiles, reads
+the real pdflatex error for each broken page, and repairs it using the page image
+plus that error — looping until the PDF builds or the budget runs out. Every fix
+is checked by a safety guard (it never replaces a page with runaway or shorter
+nonsense) and the previous version is saved as `page_NNNN.tex.bak`.
+
+```bash
+pdf2latex fix "My Book"                 # uses the original PDF to see each page
+pdf2latex fix "My Book" --max-rounds 3 --max-tries 2
+```
+
 ## Command reference
 
 | Command | What it does |
@@ -130,6 +143,7 @@ pdf2latex compile "My Book"
 | `pdf2latex assemble <pdf\|slug>` | Rebuild the monolith + standalone from existing pages. |
 | `pdf2latex split <pdf\|slug>` | Split into chapters: `--config <file.json>` or `--auto`. |
 | `pdf2latex compile <pdf\|slug>` | Compile the standalone `.tex` to PDF: `--engine`, `--runs`. |
+| `pdf2latex fix <pdf\|slug>` | Compile and auto-repair the pages that break (page image + the compile error), looping until the PDF builds. Flags: `--model`, `--max-rounds`, `--max-tries`. |
 | `pdf2latex validate <pdf\|slug>` | Check converted pages for broken LaTeX offline (braces, environments, math); writes `needs-review.txt`. Flags: `--deep-check`, `--engine`. |
 | `pdf2latex serve` | Launch the optional local web UI in the browser (needs the `[web]` extra). Flags: `--host`, `--port`. |
 

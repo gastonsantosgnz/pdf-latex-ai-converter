@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import os
 import queue
-import re
 import shutil
 import subprocess
 import sys
@@ -73,39 +72,9 @@ def _needs_review_count(paths: BookPaths) -> int:
 
 def _compile_errors(paths: BookPaths) -> list[dict]:
     """Parse a failed pdflatex log into ``[{page, error, snippet}]`` (one per page)."""
-    log = paths.standalone_tex.with_suffix(".log")
-    if not log.exists() or not paths.monolith_tex.exists():
-        return []
-    log_lines = log.read_text("utf-8", errors="replace").splitlines()
-    markers: list[tuple[int, int]] = []  # (1-based line in monolith, page number)
-    for i, line in enumerate(paths.monolith_tex.read_text("utf-8", errors="replace").splitlines(), 1):
-        m = re.match(r"% ===== Page (\d+) =====", line.strip())
-        if m:
-            markers.append((i, int(m.group(1))))
+    from ..compile import compile_errors_by_page
 
-    def page_of(line_no: int) -> int | None:
-        return next((pg for mi, pg in reversed(markers) if mi <= line_no), None)
-
-    by_page: dict[int, dict] = {}
-    for i, line in enumerate(log_lines):
-        if not line.startswith("! "):
-            continue
-        message = line[2:].strip()
-        for j in range(i + 1, min(i + 8, len(log_lines))):
-            m = re.match(r"l\.(\d+)(.*)", log_lines[j])
-            if not m:
-                continue
-            page = page_of(int(m.group(1)))
-            if page is None or page in by_page:
-                break
-            tail = log_lines[j + 1].strip() if j + 1 < len(log_lines) else ""
-            by_page[page] = {
-                "page": page,
-                "error": message,
-                "snippet": (m.group(2) + " " + tail).strip()[:120],
-            }
-            break
-    return [by_page[p] for p in sorted(by_page)]
+    return compile_errors_by_page(paths)
 
 
 def _file_opener() -> list[str]:
@@ -339,27 +308,30 @@ def create_app() -> FastAPI:
     @app.post("/api/repair")
     def repair_page(slug: str, page: int, model: str = "gpt-4o") -> dict:
         from ..assemble import assemble_monolith, write_standalone
-        from ..worker import make_client, repair_latex
+        from ..worker import make_client, render_page_to_base64, repair_latex, repair_with_image
 
-        paths = BookPaths.for_source(SOURCES_DIR / f"{slug}.pdf", output_root=OUTPUT_DIR)
+        source_pdf = SOURCES_DIR / f"{slug}.pdf"
+        paths = BookPaths.for_source(source_pdf, output_root=OUTPUT_DIR)
         tex = paths.page_tex(page)
         if not tex.exists():
             raise HTTPException(status_code=404, detail="page not found")
         latex = tex.read_text("utf-8", errors="replace")
         errors = {e["page"]: e["error"] for e in _compile_errors(paths)}
         problem = errors.get(page, "This page fails to compile in LaTeX.")
+        problems = [
+            f"LaTeX compile error: {problem}. Fix the page so it compiles "
+            "(common causes: a malformed table/array, math outside math mode, "
+            "or an unbalanced \\left/\\right)."
+        ]
         try:
             client = make_client()
-            result = repair_latex(
-                client,
-                latex,
-                [
-                    f"LaTeX compile error: {problem}. Fix the page so it compiles "
-                    "(common causes: a malformed table/array, math outside math mode, "
-                    "or an unbalanced \\left/\\right)."
-                ],
-                model=model,
-            )
+            # Prefer a vision repair (image + error): it can rebuild a broken table
+            # from the original page. Fall back to text-only if rendering fails.
+            try:
+                img = render_page_to_base64(str(source_pdf), page_index=page - 1)
+                result = repair_with_image(client, img, latex, problems, model=model)
+            except Exception:  # noqa: BLE001 - missing/unrenderable source -> text repair
+                result = repair_latex(client, latex, problems, model=model)
         except SystemExit as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - surface API errors to the client

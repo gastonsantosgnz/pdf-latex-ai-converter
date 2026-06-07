@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
+
+from .layout import BookPaths
 
 
 def compile_pdf(
@@ -58,3 +61,47 @@ def compile_pdf(
         )
     print(f"PDF ready: {pdf}")
     return pdf
+
+
+def compile_errors_by_page(paths: BookPaths) -> list[dict]:
+    """Parse a failed pdflatex log into ``[{page, error, snippet}]`` (one per page).
+
+    Maps each ``l.<n>`` line number in the log back to the ``% ===== Page N =====``
+    marker it falls under in the monolith, so a compile failure can be attributed
+    to the page that caused it.
+    """
+    log = paths.standalone_tex.with_suffix(".log")
+    if not log.exists() or not paths.monolith_tex.exists():
+        return []
+    log_lines = log.read_text("utf-8", errors="replace").splitlines()
+    markers: list[tuple[int, int]] = []  # (1-based line in monolith, page number)
+    for i, line in enumerate(
+        paths.monolith_tex.read_text("utf-8", errors="replace").splitlines(), 1
+    ):
+        m = re.match(r"% ===== Page (\d+) =====", line.strip())
+        if m:
+            markers.append((i, int(m.group(1))))
+
+    def page_of(line_no: int) -> int | None:
+        return next((pg for mi, pg in reversed(markers) if mi <= line_no), None)
+
+    by_page: dict[int, dict] = {}
+    for i, line in enumerate(log_lines):
+        if not line.startswith("! "):
+            continue
+        message = line[2:].strip()
+        for j in range(i + 1, min(i + 8, len(log_lines))):
+            m = re.match(r"l\.(\d+)(.*)", log_lines[j])
+            if not m:
+                continue
+            page = page_of(int(m.group(1)))
+            if page is None or page in by_page:
+                break
+            tail = log_lines[j + 1].strip() if j + 1 < len(log_lines) else ""
+            by_page[page] = {
+                "page": page,
+                "error": message,
+                "snippet": (m.group(2) + " " + tail).strip()[:120],
+            }
+            break
+    return [by_page[p] for p in sorted(by_page)]

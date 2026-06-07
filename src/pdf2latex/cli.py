@@ -6,6 +6,7 @@ Subcommands:
     assemble   Rebuild the monolith and standalone from existing pages.
     split      Split the monolith into chapter files (config or --auto).
     compile    Compile the standalone .tex into PDF (needs pdflatex).
+    fix        Compile and auto-repair the pages that break (vision + the error).
     validate   Check converted pages for broken LaTeX (offline).
     serve      Launch the local web UI (needs the [web] extra).
 """
@@ -95,6 +96,50 @@ def _cmd_compile(args: argparse.Namespace) -> int:
     paths = _paths_for(args.source, args.out)
     compile_pdf(paths.standalone_tex, engine=args.engine, runs=args.runs)
     return 0
+
+
+def _cmd_fix(args: argparse.Namespace) -> int:
+    from dotenv import load_dotenv
+
+    from .autofix import autofix_book
+
+    load_dotenv()
+    source = resolve_source(args.source)
+
+    def report(event: dict) -> None:
+        kind = event.get("kind")
+        if kind == "compile":
+            print(f"Round {event['round']}: compiling...", flush=True)
+        elif kind == "broken":
+            print(f"  broken pages: {event['pages'] or 'none attributable'}", flush=True)
+        elif kind == "page_fixed":
+            print(f"  page {event['page']}: fixed ({event['tokens']} tokens)", flush=True)
+        elif kind == "page_skipped":
+            print(f"  page {event['page']}: skipped — unsafe fix ({event['reason']})", flush=True)
+        elif kind == "page_error":
+            print(f"  page {event['page']}: error — {event['error']}", flush=True)
+        elif kind == "built":
+            print(f"PDF built: {event['pdf']}", flush=True)
+
+    result = autofix_book(
+        source,
+        model=args.model,
+        output_root=args.out,
+        max_rounds=args.max_rounds,
+        max_tries_per_page=args.max_tries,
+        on_event=report,
+    )
+    print(
+        f"\nDone in {result.rounds} round(s). "
+        f"fixed={result.fixed or '[]'} stuck={result.stuck or '[]'} "
+        f"skipped={result.skipped or '[]'} tokens={result.total_tokens:,}"
+    )
+    if result.ok:
+        print(f"PDF: {result.pdf}")
+        return 0
+    if result.stuck:
+        print("Some pages still need a manual edit (see the page .tex files).")
+    return 1
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
@@ -239,6 +284,18 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--runs", type=int, default=2)
     _add_out_arg(pp)
     pp.set_defaults(func=_cmd_compile)
+
+    pf = sub.add_parser(
+        "fix", help="Compile and auto-repair the pages that break, until the PDF builds."
+    )
+    pf.add_argument("source", help="Source PDF reference or existing output slug.")
+    pf.add_argument("--model", default=_default_model(), help="Vision model for repairs.")
+    pf.add_argument("--max-rounds", type=int, default=5, help="Max compile/fix rounds.")
+    pf.add_argument(
+        "--max-tries", type=int, default=3, help="Max repair attempts per page."
+    )
+    _add_out_arg(pf)
+    pf.set_defaults(func=_cmd_fix)
 
     pvd = sub.add_parser("validate", help="Check converted pages for broken LaTeX (offline).")
     pvd.add_argument("source", help="Source PDF reference or existing output slug.")

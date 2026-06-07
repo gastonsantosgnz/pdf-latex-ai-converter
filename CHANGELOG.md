@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   estimate, a single-page test before a full run, live progress over
   Server-Sent Events, and result downloads. Backed by a new `on_event` progress
   hook on `convert_pdf`.
+- Compile-driven auto-repair: a new `fix` subcommand (and the web "Fix all"
+  button) compiles the book, reads the real pdflatex error attributed to each
+  page, and repairs that page with the model using BOTH its source image and the
+  error (`worker.repair_with_image`) — strong enough to rebuild a broken table —
+  looping until the PDF builds or a bounded budget (`--max-rounds`,
+  `--max-tries`) runs out. The log parser moved to `compile.compile_errors_by_page`.
 - Safe auto-repair: `repair_latex` now runs deterministic guards (`assess_repair`)
   that reject a model fix when it balloons the page, drops too much content,
   introduces runaway repetition, or adds new unbalanced braces/environments. The

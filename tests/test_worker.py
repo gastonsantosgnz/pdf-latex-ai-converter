@@ -21,6 +21,7 @@ from pdf2latex.worker import (
     make_client,
     render_page_to_base64,
     repair_latex,
+    repair_with_image,
 )
 
 
@@ -226,6 +227,31 @@ def test_repair_latex_flags_unsafe_fix_and_can_be_disabled() -> None:
     client2 = FakeClient([_response(runaway, usage=(3, 4, 7))])
     res2 = repair_latex(client2, "\\section*{2} corto", ["bad"], model="gpt-4o", guard=False)
     assert res2.rejected is None  # guard can be turned off
+
+
+def test_repair_with_image_sends_image_and_strips_fences() -> None:
+    fixed = "```latex\n\\begin{array}{cc}a & b\\end{array}\n```"
+    client = FakeClient([_response(fixed, usage=(5, 6, 11))])
+    res = repair_with_image(
+        client, "IMGB64", "\\begin{array}{c}a & b", ["compile error: extra tab"], model="gpt-4o"
+    )
+
+    assert "```" not in res.latex
+    assert res.total_tokens == 11
+    assert res.rejected is None
+    # The page image is part of the multimodal user message.
+    content = client.calls[0]["messages"][1]["content"]
+    image_part = next(p for p in content if p.get("type") == "image_url")
+    assert "IMGB64" in image_part["image_url"]["url"]
+    text_part = next(p for p in content if p.get("type") == "text")
+    assert "extra tab" in text_part["text"]
+
+
+def test_repair_with_image_guard_flags_runaway() -> None:
+    runaway = "\\section*{" + "\\textbullet " * 5000 + "}"
+    client = FakeClient([_response(runaway, usage=(5, 6, 11))])
+    res = repair_with_image(client, "IMG", "\\section*{2} corto", ["bad"], model="gpt-4o")
+    assert res.rejected
 
 
 def test_render_page_to_base64_produces_png(tmp_path: Path) -> None:

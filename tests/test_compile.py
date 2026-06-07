@@ -8,7 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from pdf2latex import compile as compile_mod
-from pdf2latex.compile import compile_pdf
+from pdf2latex.compile import compile_errors_by_page, compile_pdf
+from pdf2latex.layout import BookPaths
 
 
 def _tex(tmp_path: Path) -> Path:
@@ -86,3 +87,31 @@ def test_compile_lenient_raises_when_no_pdf(
     )
     with pytest.raises(SystemExit, match="did not produce a PDF"):
         compile_pdf(_tex(tmp_path), runs=1, halt_on_error=False)
+
+
+def test_compile_errors_by_page_maps_log_to_page(tmp_path: Path) -> None:
+    paths = BookPaths.for_source(tmp_path / "book.pdf", output_root=tmp_path)
+    paths.ensure_dirs()
+    paths.monolith_tex.write_text(
+        "% ===== Page 1 =====\nline a\n% ===== Page 2 =====\nbad line here\n  & more\n",
+        encoding="utf-8",
+    )
+    paths.standalone_tex.write_text("standalone", encoding="utf-8")
+    paths.standalone_tex.with_suffix(".log").write_text(
+        "preamble\n"
+        "! Extra alignment tab has been changed to \\cr.\n"
+        "<recently read> \\endtemplate\n"
+        "l.4 bad line here\n"
+        "  & more\n",
+        encoding="utf-8",
+    )
+    errors = compile_errors_by_page(paths)
+    assert len(errors) == 1
+    assert errors[0]["page"] == 2  # l.4 falls under the "Page 2" marker on line 3
+    assert "Extra alignment tab" in errors[0]["error"]
+    assert "bad line here" in errors[0]["snippet"]
+
+
+def test_compile_errors_by_page_empty_without_log(tmp_path: Path) -> None:
+    paths = BookPaths.for_source(tmp_path / "book.pdf", output_root=tmp_path)
+    assert compile_errors_by_page(paths) == []
