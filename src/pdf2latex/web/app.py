@@ -364,10 +364,37 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - surface API errors to the client
             raise HTTPException(status_code=502, detail=f"AI repair failed: {exc}") from exc
+        if result.rejected:
+            # The fix would have damaged the page: leave the original untouched.
+            return {
+                "slug": slug,
+                "page": page,
+                "tokens": result.total_tokens,
+                "applied": False,
+                "rejected": result.rejected,
+            }
+        backup = tex.with_suffix(".tex.bak")
+        backup.write_text(latex, encoding="utf-8")  # reversible: keep the pre-repair page
         tex.write_text(result.latex, encoding="utf-8")
         assemble_monolith(paths)
         write_standalone(paths)
-        return {"slug": slug, "page": page, "tokens": result.total_tokens}
+        return {"slug": slug, "page": page, "tokens": result.total_tokens, "applied": True}
+
+    @app.post("/api/restore")
+    def restore_page(slug: str, page: int) -> dict:
+        """Revert a page to the backup saved before the last applied AI repair."""
+        from ..assemble import assemble_monolith, write_standalone
+
+        paths = BookPaths.for_source(SOURCES_DIR / f"{slug}.pdf", output_root=OUTPUT_DIR)
+        tex = paths.page_tex(page)
+        backup = tex.with_suffix(".tex.bak")
+        if not backup.exists():
+            raise HTTPException(status_code=404, detail="no backup to restore for this page")
+        tex.write_text(backup.read_text("utf-8", errors="replace"), encoding="utf-8")
+        backup.unlink(missing_ok=True)
+        assemble_monolith(paths)
+        write_standalone(paths)
+        return {"slug": slug, "page": page, "restored": True}
 
     @app.get("/api/library")
     def library() -> dict:

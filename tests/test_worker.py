@@ -15,6 +15,8 @@ import pytest
 from pdf2latex import worker
 from pdf2latex.worker import (
     PageResult,
+    _max_token_run,
+    assess_repair,
     convert_image_b64,
     make_client,
     render_page_to_base64,
@@ -177,6 +179,53 @@ def test_repair_latex_fixes_and_strips_fences() -> None:
     # The detected problem is handed to the model in the prompt.
     sent = client.calls[0]["messages"][1]["content"]
     assert "unclosed itemize" in sent
+
+
+def test_max_token_run_counts_longest_repeat() -> None:
+    assert _max_token_run("") == 0
+    assert _max_token_run("a b c") == 1
+    assert _max_token_run("x x x y") == 3
+    assert _max_token_run("\\textbullet " * 200) == 200
+
+
+def test_assess_repair_accepts_a_minimal_fix() -> None:
+    original = "\\begin{itemize}\\item uno \\item dos"
+    repaired = "\\begin{itemize}\\item uno \\item dos\\end{itemize}"
+    assert assess_repair(original, repaired) is None
+
+
+def test_assess_repair_rejects_empty() -> None:
+    assert "empty" in assess_repair("some real content here", "   ")
+
+
+def test_assess_repair_rejects_runaway_growth() -> None:
+    original = "\\section*{2} texto breve"
+    repaired = "\\section*{2 " + "\\textbullet " * 4000 + "}"
+    reason = assess_repair(original, repaired)
+    assert reason and ("balloon" in reason or "repetition" in reason)
+
+
+def test_assess_repair_rejects_content_loss() -> None:
+    original = "x" * 600
+    repaired = "x" * 100
+    assert "dropped" in assess_repair(original, repaired)
+
+
+def test_assess_repair_rejects_new_structural_breakage() -> None:
+    original = "balanced \\textbf{ok} content padded out to a decent length here"
+    repaired = "balanced \\textbf{ok content padded out to a decent length here"  # missing }
+    assert "unbalanced" in assess_repair(original, repaired)
+
+
+def test_repair_latex_flags_unsafe_fix_and_can_be_disabled() -> None:
+    runaway = "\\section*{" + "\\textbullet " * 5000 + "}"
+    client = FakeClient([_response(runaway, usage=(3, 4, 7))])
+    res = repair_latex(client, "\\section*{2} corto", ["bad"], model="gpt-4o")
+    assert res.rejected  # guard catches the runaway
+
+    client2 = FakeClient([_response(runaway, usage=(3, 4, 7))])
+    res2 = repair_latex(client2, "\\section*{2} corto", ["bad"], model="gpt-4o", guard=False)
+    assert res2.rejected is None  # guard can be turned off
 
 
 def test_render_page_to_base64_produces_png(tmp_path: Path) -> None:

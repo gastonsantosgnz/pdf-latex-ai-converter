@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   estimate, a single-page test before a full run, live progress over
   Server-Sent Events, and result downloads. Backed by a new `on_event` progress
   hook on `convert_pdf`.
+- Safe auto-repair: `repair_latex` now runs deterministic guards (`assess_repair`)
+  that reject a model fix when it balloons the page, drops too much content,
+  introduces runaway repetition, or adds new unbalanced braces/environments. The
+  page is left untouched and the UI reports the skip instead of silently erasing
+  content. Applied repairs first save a `.tex.bak`, and a new `/api/restore`
+  endpoint reverts a page to that backup.
 
 ## [0.1.0] - 2026-06-06
 

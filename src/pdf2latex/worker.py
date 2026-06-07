@@ -31,6 +31,7 @@ class PageResult:
     completion_tokens: int = 0
     total_tokens: int = 0
     finish_reason: str | None = None
+    rejected: str | None = None  # set by repair_latex when the fix is unsafe to apply
 
 
 def render_page_to_base64(pdf_path: str, page_index: int = 0, scale: float = 2.0) -> str:
@@ -143,6 +144,57 @@ def convert_image_b64(
     raise RuntimeError("worker: conversion loop produced no output")
 
 
+def _max_token_run(text: str) -> int:
+    """Length of the longest run of identical whitespace-separated tokens.
+
+    A healthy page never repeats the same token dozens of times in a row; a
+    runaway model output does (e.g. ``\\textbullet \\textbullet \\textbullet`` ...).
+    """
+    best = run = 0
+    prev: str | None = None
+    for tok in text.split():
+        run = run + 1 if tok == prev else 1
+        prev = tok
+        if run > best:
+            best = run
+    return best
+
+
+def assess_repair(original: str, repaired: str) -> str | None:
+    """Return a reason the repair is UNSAFE to apply, or ``None`` when it is safe.
+
+    The model-based repair occasionally returns structurally-valid but nonsense
+    LaTeX that destroys the page (observed in the wild: a heading padded with
+    thousands of ``\\textbullet``, or a ~2000-row empty ``array``). Those pass the
+    brace/environment checks yet break the build worse than before and erase the
+    real content. These cheap, deterministic guards catch the pathological cases
+    while leaving genuine minimal fixes untouched.
+    """
+    from .validate import validate_text
+
+    repaired = repaired.strip()
+    if not repaired:
+        return "the repair returned an empty page"
+    before, after = len(original.strip()), len(repaired)
+    # 1. Runaway growth — a real fix is small; a 1.5x (or +400 char) blow-up is not.
+    if after > max(int(before * 1.5), before + 400):
+        return (
+            f"the repair ballooned the page ({before} to {after} characters); "
+            "this looks like runaway output"
+        )
+    # 2. Content loss — dropping half a substantial page means material was erased.
+    if before >= 200 and after < before * 0.5:
+        return f"the repair dropped too much content ({before} to {after} characters)"
+    # 3. Pathological repetition the repair introduced.
+    run_after = _max_token_run(repaired)
+    if run_after >= 40 and run_after > _max_token_run(original) * 3:
+        return f"the repair introduced runaway repetition ({run_after}x a single token)"
+    # 4. The repair must not add NEW structural breakage.
+    if len(validate_text(repaired)) > len(validate_text(original)):
+        return "the repair introduced new unbalanced braces or environments"
+    return None
+
+
 def repair_latex(
     client,
     latex: str,
@@ -151,6 +203,7 @@ def repair_latex(
     model: str,
     max_tokens: int = 4096,
     rate_limit_retries: int = 5,
+    guard: bool = True,
 ) -> PageResult:
     """Ask the model to minimally fix a page's LaTeX given the detected problems.
 
@@ -185,12 +238,15 @@ def repair_latex(
     )
     choice = response.choices[0]
     usage = response.usage
+    fixed = strip_code_fences(choice.message.content or "")
+    rejected = assess_repair(latex, fixed) if guard else None
     return PageResult(
-        latex=strip_code_fences(choice.message.content or ""),
+        latex=fixed,
         prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
         completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
         total_tokens=getattr(usage, "total_tokens", 0) or 0,
         finish_reason=getattr(choice, "finish_reason", None),
+        rejected=rejected,
     )
 
 
