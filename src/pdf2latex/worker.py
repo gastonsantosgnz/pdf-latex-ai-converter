@@ -324,20 +324,42 @@ def repair_with_image(
 
 
 def _create_with_backoff(client, *, model, messages, max_tokens, retries):
-    for attempt in range(retries):
+    # Newer models (gpt-5, o-series) use ``max_completion_tokens`` and reject the
+    # old ``max_tokens``; some also reject a custom ``temperature``. Start with the
+    # modern parameters and drop whatever a model rejects, then retry immediately.
+    kwargs = {
+        "model": model,
+        "messages": messages,
+        "max_completion_tokens": max_tokens,
+        "temperature": 0,
+    }
+    attempt = 0
+    while True:
         try:
-            return client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=0,
-            )
-        except Exception as exc:  # noqa: BLE001 - retry only on rate limits
+            return client.chat.completions.create(**kwargs)
+        except Exception as exc:  # noqa: BLE001
             msg = str(exc).lower()
+            # Out of credit/quota is a 429 but waiting never helps: fail fast.
+            if "insufficient_quota" in msg or "exceeded your current quota" in msg:
+                raise RuntimeError(
+                    "OpenAI quota exceeded: your account is out of credit. Add credits "
+                    "at platform.openai.com (Billing), then try again."
+                ) from exc
+            if "unsupported" in msg or "not supported" in msg:
+                if "temperature" in msg and "temperature" in kwargs:
+                    del kwargs["temperature"]
+                    continue
+                if "max_completion_tokens" in msg and "max_completion_tokens" in kwargs:
+                    del kwargs["max_completion_tokens"]
+                    kwargs["max_tokens"] = max_tokens  # very old model
+                    continue
             if "429" in msg or "rate_limit" in msg or "rate limit" in msg:
+                if attempt >= retries - 1:
+                    break
                 wait = 10 * (2 ** attempt)
                 print(f"Rate limit, waiting {wait}s (attempt {attempt + 1}/{retries})…", flush=True)
                 time.sleep(wait)
+                attempt += 1
                 continue
             raise
     raise RuntimeError("worker: exceeded rate-limit retries")

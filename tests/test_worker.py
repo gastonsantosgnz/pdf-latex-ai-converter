@@ -131,6 +131,44 @@ def test_create_with_backoff_exhausts_retries(monkeypatch: pytest.MonkeyPatch) -
         )
 
 
+def test_create_with_backoff_fails_fast_on_quota(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(worker.time, "sleep", lambda *_: None)
+    client = FakeClient([Exception("Error code: 429 - insufficient_quota: exceeded quota")])
+    with pytest.raises(RuntimeError, match="quota exceeded"):
+        worker._create_with_backoff(client, model="gpt-5", messages=[], max_tokens=1, retries=5)
+    assert len(client.calls) == 1  # no pointless retries
+
+
+def test_create_with_backoff_uses_max_completion_tokens() -> None:
+    client = FakeClient([_response("ok")])
+    worker._create_with_backoff(client, model="gpt-5", messages=[], max_tokens=99, retries=3)
+    sent = client.calls[0]
+    assert sent["max_completion_tokens"] == 99
+    assert "max_tokens" not in sent
+
+
+def test_create_with_backoff_drops_unsupported_temperature() -> None:
+    # First call rejects temperature; the retry must succeed without it.
+    client = FakeClient([
+        Exception("Error: Unsupported value: 'temperature' is not supported with this model."),
+        _response("ok"),
+    ])
+    res = worker._create_with_backoff(client, model="gpt-5", messages=[], max_tokens=5, retries=3)
+    assert res.choices[0].message.content == "ok"
+    assert len(client.calls) == 2
+    assert "temperature" not in client.calls[1]
+
+
+def test_create_with_backoff_falls_back_to_max_tokens_for_old_models() -> None:
+    client = FakeClient([
+        Exception("Error: Unsupported parameter: 'max_completion_tokens' is not supported."),
+        _response("ok"),
+    ])
+    worker._create_with_backoff(client, model="legacy", messages=[], max_tokens=7, retries=3)
+    assert client.calls[1]["max_tokens"] == 7
+    assert "max_completion_tokens" not in client.calls[1]
+
+
 @pytest.mark.parametrize(
     ("text", "blank"),
     [
