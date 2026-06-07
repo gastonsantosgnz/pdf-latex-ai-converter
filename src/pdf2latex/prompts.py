@@ -26,6 +26,23 @@ Primary obligation:
 - Use ONLY if the page is fully blank, or contains only stains/decorative art
   with no letters, digits or math symbols at all.
 
+MUST COMPILE with pdflatex. These specific mistakes break the build - never make them:
+- Subscripts (_) and superscripts (^) ONLY inside math mode. Wrap them in \( ... \):
+  write \(10^{-1}\), \(111000111_{2}\), \(x^2\) - NEVER 10^{-1}, 111_{2} or x^2 in plain
+  text (that causes "Missing $ inserted"). For ordinals in running text use
+  \textsuperscript{} (e.g. 5\textsuperscript{o}), not 5^o.
+- align*, aligned, equation and array are ALREADY math: NEVER nest them inside \[ ... \]
+  or inside another math environment. Write \begin{align*}...\end{align*} on its own
+  (not wrapped in \[ \]); nesting gives "Erroneous nesting of equation structures".
+- tabular/array column count: the column spec must have (the max number of & in any single
+  row) + 1 columns. If a row has 4 &, the spec needs 5 columns. A mismatch causes
+  "Extra alignment tab has been changed to \cr".
+- \hline goes on its OWN line between two complete rows, NEVER after a & or inside a cell
+  (that gives "Misplaced \noalign" / "Misplaced \cr").
+- Balance every \left with a matching \right (use \right. for an invisible delimiter).
+- Close every environment and balance every { }. In normal text escape literal
+  _ # % & as \_ \# \% \& (a bare _ or ^ in text causes "Missing $ inserted").
+
 General rules:
 - Use \section*, \subsection*, \subsubsection* for headings (unnumbered).
 - Inline math: \( ... \)

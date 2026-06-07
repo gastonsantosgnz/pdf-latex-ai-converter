@@ -158,10 +158,13 @@ def repair_latex(
     caller can account for the extra cost of the repair round-trip.
     """
     system_prompt = (
-        "You fix LaTeX so it compiles, with MINIMAL edits. Return ONLY the corrected "
-        "LaTeX for the page: no preamble, no \\documentclass, no Markdown code fences. "
-        "Preserve ALL content and the original language. Do not add or remove material; "
-        "only repair the reported problems and any directly related breakage."
+        "You fix LaTeX so it compiles with pdflatex, with MINIMAL edits. Return ONLY the "
+        "corrected LaTeX for the page: no preamble, no \\documentclass, no Markdown code "
+        "fences. Preserve ALL content and the original language; do not add or remove "
+        "material. Common fixes: wrap any subscript/superscript (_ ^) in \\( \\); never nest "
+        "align*/aligned/equation/array inside \\[ \\]; make the tabular/array column spec "
+        "match the widest row (max & in a row + 1); put \\hline on its own line between rows; "
+        "balance \\left with \\right; close every environment and balance every { }."
     )
     problem_list = "\n".join(f"- {p}" for p in problems) or "- (unspecified)"
     user_text = (

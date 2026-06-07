@@ -25,6 +25,13 @@ def test_dense_profile_appends_extra_rules() -> None:
     assert "photo-omitted" in prompt
 
 
+def test_base_prompt_has_compile_safety_rules() -> None:
+    # The rules that prevent the most common pdflatex failures must be present.
+    assert "MUST COMPILE" in BASE_SYSTEM_PROMPT
+    assert "Missing $" in BASE_SYSTEM_PROMPT
+    assert "Extra alignment tab" in BASE_SYSTEM_PROMPT
+
+
 def test_unknown_profile_raises_value_error() -> None:
     with pytest.raises(ValueError, match="Unknown profile"):
         build_system_prompt("nope")
