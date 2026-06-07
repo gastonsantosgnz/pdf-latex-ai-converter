@@ -10,11 +10,16 @@ import argparse
 import base64
 import io
 import os
+import threading
 import time
 from dataclasses import dataclass
 
 from .assemble import strip_code_fences
 from .prompts import build_system_prompt, build_user_text
+
+# PDFium is not thread-safe; serialize all rendering so concurrent workers cannot
+# corrupt its state (which surfaced as random "Failed to load page/document").
+_RENDER_LOCK = threading.Lock()
 
 
 @dataclass
@@ -36,16 +41,17 @@ def render_page_to_base64(pdf_path: str, page_index: int = 0, scale: float = 2.0
     """
     import pypdfium2 as pdfium
 
-    pdf = pdfium.PdfDocument(pdf_path)
-    try:
-        page = pdf[page_index]
-        bitmap = page.render(scale=scale)
-        image = bitmap.to_pil()
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        return base64.b64encode(buf.getvalue()).decode("utf-8")
-    finally:
-        pdf.close()
+    with _RENDER_LOCK:
+        pdf = pdfium.PdfDocument(pdf_path)
+        try:
+            page = pdf[page_index]
+            bitmap = page.render(scale=scale)
+            image = bitmap.to_pil()
+            buf = io.BytesIO()
+            image.save(buf, format="PNG")
+            return base64.b64encode(buf.getvalue()).decode("utf-8")
+        finally:
+            pdf.close()
 
 
 def _looks_blank(text: str) -> bool:

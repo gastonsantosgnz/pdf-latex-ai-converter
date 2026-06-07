@@ -193,3 +193,26 @@ def test_render_page_to_base64_produces_png(tmp_path: Path) -> None:
 
     raw = base64.b64decode(b64)
     assert raw[:8] == b"\x89PNG\r\n\x1a\n"  # PNG magic number
+
+
+def test_render_is_thread_safe(tmp_path: Path) -> None:
+    """Concurrent rendering must not fail: PDFium is serialized behind a lock."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    for _ in range(16):
+        writer.add_blank_page(width=200, height=260)
+    pdf_path = tmp_path / "multi.pdf"
+    with pdf_path.open("wb") as fh:
+        writer.write(fh)
+
+    def _render(i: int) -> str:
+        return render_page_to_base64(str(pdf_path), page_index=i, scale=1.0)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(_render, range(16)))
+
+    assert len(results) == 16
+    assert all(base64.b64decode(r)[:8] == b"\x89PNG\r\n\x1a\n" for r in results)

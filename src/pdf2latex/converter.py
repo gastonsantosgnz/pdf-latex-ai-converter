@@ -307,6 +307,8 @@ def convert_pdf(
 
         page_tex = paths.page_tex(page_num)
         page_tex.write_text(latex, encoding="utf-8")
+        err_file = paths.pages_dir / f"page_{page_num:04d}.err.txt"
+        err_file.unlink(missing_ok=True)  # clear a prior failure marker on retry
         if tt:
             page_tex.with_suffix(".usage.txt").write_text(
                 f"model={model} prompt_tokens={pt} completion_tokens={ct} total_tokens={tt}\n",
