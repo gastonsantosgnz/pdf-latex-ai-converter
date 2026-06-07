@@ -57,6 +57,17 @@
   .chip { color: var(--warn); }
   .item-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
   .item-actions a { color: var(--accent); text-decoration: none; font-size: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  .item-actions a.btn-dl { background: var(--ok); color: #06140d; border: none; font-weight: 600; }
+  .menu { position: relative; margin-left: auto; }
+  .menu-btn { line-height: 1; padding: 6px 10px; }
+  .menu-pop { position: absolute; right: 0; top: calc(100% + 6px); min-width: 190px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 10px; padding: 6px; z-index: 20;
+    box-shadow: 0 12px 30px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 2px; }
+  .menu-item { text-align: left; background: transparent; border: none; color: var(--ink); font-size: 13px;
+    padding: 8px 10px; border-radius: 7px; cursor: pointer; text-decoration: none; display: block; }
+  .menu-item:hover { background: #1d2230; }
+  .menu-item.danger { color: var(--err); }
+  button.danger-btn { background: var(--err); border-color: var(--err); color: #fff; font-weight: 600; }
   .file { display: flex; gap: 8px; align-items: center; }
   .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
   .bar { height: 10px; background: #10131a; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
@@ -134,7 +145,8 @@
     <div class="card-head">
       <h2>Library</h2>
       <div class="file">
-        <input type="file" id="upload" accept="application/pdf" multiple />
+        <button id="addPdf" type="button" class="sm primary">Add PDF</button>
+        <input type="file" id="upload" accept="application/pdf" multiple class="hidden" />
         <button id="openFolder" type="button" class="sm">Open folder</button>
         <button id="refresh" type="button" class="sm">Refresh</button>
       </div>
@@ -157,8 +169,7 @@
         </div>
       </div>
     </div>
-    <p class="note" style="margin-top:8px">Every page is converted at full fidelity for math, tables and diagrams — there is nothing to choose here.</p>
-    <div class="check"><input type="checkbox" id="repair" /><label for="repair">Auto-repair invalid pages (extra API calls)</label></div>
+    <div class="check" style="margin-top:8px"><input type="checkbox" id="repair" /><label for="repair">Auto-repair invalid pages (extra API calls)</label></div>
     <p class="note">Workers = pages converted at once (faster, more API pressure). Use a row's <em>Estimate</em> to compare cost across models and test a single page before converting the whole document.</p>
   </div>
 
@@ -183,13 +194,13 @@
           <li>Choose where results are saved (outside the repo): <code>export PDF2LATEX_OUTPUT_DIR=~/Documents/your-folder</code>, then start with <code>pdf2latex serve</code>. Restart serve after changing it.</li>
         </ul>
         <h3>1. Add PDFs</h3>
-        <ul><li>Upload one with <em>Choose File</em>, or drop PDFs into the sources folder shown above and click <em>Refresh</em>.</li></ul>
+        <ul><li>Click <em>Add PDF</em>, or drop PDFs into the sources folder shown above and click <em>Refresh</em>.</li></ul>
         <h3>2. Convert and track</h3>
         <ol>
           <li>Pick the model and number of workers. Every page is always converted at full fidelity (math, tables, diagrams) — there is no quality to choose.</li>
-          <li>Click <em>Estimate</em> for a free cost preview (no API calls).</li>
+          <li>Open the <em>⋯</em> menu on a row for <em>Estimate cost</em> (a free preview, no API calls) and the other downloads.</li>
           <li>Click <em>Convert</em> and watch live progress. <em>Resume</em> continues a half-done PDF.</li>
-          <li>When a row shows <em>Done</em>, use its download links (monolith / standalone / needs-review).</li>
+          <li>When a row shows <em>Done</em>, use <em>Compile PDF</em> then <em>Download PDF</em>. <em>Reconvert from scratch</em> (in the ⋯ menu) deletes the converted pages and starts over — it asks for confirmation first.</li>
         </ol>
         <p class="note">Conversions spend real OpenAI credit. The same engine also works from the command line, e.g. <code>pdf2latex convert "file.pdf" --dry-run</code>.</p>
       </div>
@@ -200,6 +211,17 @@
     <div class="modal-box">
       <div class="modal-head"><h2 id="estTitle">Estimate</h2><button id="estClose" type="button" class="sm">Close</button></div>
       <div id="estBody"></div>
+    </div>
+  </div>
+
+  <div id="confirmModal" class="modal hidden">
+    <div class="modal-box" style="max-width:440px">
+      <div class="modal-head"><h2 id="confirmTitle">Confirm</h2></div>
+      <p id="confirmBody" style="font-size:14px; color:var(--ink); margin:0 0 18px; line-height:1.5"></p>
+      <div style="display:flex; gap:10px; justify-content:flex-end">
+        <button id="confirmCancel" type="button" class="sm">Cancel</button>
+        <button id="confirmOk" type="button" class="sm primary">Confirm</button>
+      </div>
     </div>
   </div>
 </div>
@@ -410,16 +432,27 @@ function renderItem(it) {
   const el = document.createElement("div");
   el.className = "item";
   el.dataset.src = it.name;
-  const convertLabel = it.status === "in_progress" ? "Resume" : it.status === "done" ? "Reconvert" : "Convert";
   const review = it.needs_review ? `<span class="chip">${it.needs_review} need review</span>` : "";
   const present = new Set((it.files || []).map((f) => f.kind));
-  const downloads = DL_ORDER.filter((k) => present.has(k))
-    .map((k) => `<a href="/api/output/${it.slug}/${k}" title="${DL[k].tip}">${DL[k].label}</a>`)
-    .join("");
-  const openBtn = present.size ? '<button class="sm open" type="button">Open folder</button>' : "";
-  const compileBtn = present.has("standalone")
-    ? '<button class="sm comp primary" type="button">Compile PDF</button>'
-    : "";
+
+  // Primary, always-visible actions: the obvious next step for this row.
+  const primary = [];
+  if (it.status === "pending") primary.push('<button class="sm act primary" type="button">Convert</button>');
+  else if (it.status === "in_progress") primary.push('<button class="sm act primary" type="button">Resume</button>');
+  if (present.has("standalone"))
+    primary.push(`<button class="sm comp ${it.status === "done" ? "primary" : ""}" type="button">Compile PDF</button>`);
+  if (present.has("pdf"))
+    primary.push(`<a class="btn-dl" href="/api/output/${it.slug}/pdf" title="${DL.pdf.tip}">Download PDF</a>`);
+
+  // Everything else lives in the ⋯ menu so the row stays uncluttered.
+  const menu = ['<button class="menu-item mi-est" type="button">Estimate cost</button>'];
+  for (const k of ["standalone", "monolith", "needs-review"]) {
+    if (present.has(k)) menu.push(`<a class="menu-item" href="/api/output/${it.slug}/${k}" title="${DL[k].tip}">${DL[k].label}</a>`);
+  }
+  if (present.size) menu.push('<button class="menu-item mi-open" type="button">Open folder</button>');
+  if (it.status === "done" || it.status === "in_progress")
+    menu.push('<button class="menu-item danger mi-reconv" type="button">Reconvert from scratch…</button>');
+
   el.innerHTML = `
     <div class="item-top">
       <span class="item-name">${it.name}</span>
@@ -428,21 +461,67 @@ function renderItem(it) {
     <div class="mini"><i style="width:${pct}%"></i></div>
     <div class="item-meta"><span>${it.done}/${it.total} pages</span>${review}</div>
     <div class="item-actions">
-      <button class="sm est" data-src="${it.name}">Estimate</button>
-      <button class="sm act" data-src="${it.name}">${convertLabel}</button>
-      ${compileBtn}
-      ${downloads}${openBtn}
+      ${primary.join("")}
+      <div class="menu">
+        <button class="sm menu-btn" type="button" aria-label="More actions" title="More actions">⋯</button>
+        <div class="menu-pop hidden">${menu.join("")}</div>
+      </div>
     </div>`;
-  el.querySelector("button.est").onclick = () => openEstimate(it.name);
-  el.querySelector("button.act").onclick = () => start(false, it.name);
-  const ob = el.querySelector("button.open");
-  if (ob) ob.onclick = () => revealFolder(it.slug);
-  const cb = el.querySelector("button.comp");
-  if (cb) cb.onclick = () => compileBook(it.slug, it.name);
+
+  const act = el.querySelector("button.act");
+  if (act) act.onclick = () => start(false, it.name);
+  const comp = el.querySelector("button.comp");
+  if (comp) comp.onclick = () => compileBook(it.slug, it.name);
+
+  const pop = el.querySelector(".menu-pop");
+  el.querySelector(".menu-btn").onclick = (ev) => { ev.stopPropagation(); const open = !pop.classList.contains("hidden"); closeAllMenus(); pop.classList.toggle("hidden", open); };
+  const est = el.querySelector(".mi-est"); if (est) est.onclick = () => { closeAllMenus(); openEstimate(it.name); };
+  const open = el.querySelector(".mi-open"); if (open) open.onclick = () => { closeAllMenus(); revealFolder(it.slug); };
+  const reconv = el.querySelector(".mi-reconv"); if (reconv) reconv.onclick = () => { closeAllMenus(); reconvert(it); };
   return el;
 }
 
+function closeAllMenus() {
+  document.querySelectorAll(".menu-pop").forEach((p) => p.classList.add("hidden"));
+}
+document.addEventListener("click", () => closeAllMenus());
+
+// A small styled yes/no dialog (returns a Promise<boolean>).
+function confirmModal({ title, body, confirmLabel = "Confirm", danger = false }) {
+  return new Promise((resolve) => {
+    $("confirmTitle").textContent = title;
+    $("confirmBody").textContent = body;
+    const ok = $("confirmOk"), cancel = $("confirmCancel");
+    ok.textContent = confirmLabel;
+    ok.classList.toggle("danger-btn", danger);
+    ok.classList.toggle("primary", !danger);
+    $("confirmModal").classList.remove("hidden");
+    const close = (val) => { $("confirmModal").classList.add("hidden"); ok.onclick = cancel.onclick = null; resolve(val); };
+    ok.onclick = () => close(true);
+    cancel.onclick = () => close(false);
+  });
+}
+
+// Reconvert = start over: it deletes the converted pages, so confirm first.
+async function reconvert(it) {
+  const n = it.done || 0;
+  const ok = await confirmModal({
+    title: "Reconvert from scratch?",
+    body: `This permanently deletes the ${n} converted page(s) of “${it.name}” and converts them again from the original PDF. It spends API credit and cannot be undone.`,
+    confirmLabel: "Delete and reconvert",
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    const r = await fetch(`/api/reset?slug=${encodeURIComponent(it.slug)}`, { method: "POST" });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); alert("Could not reset: " + (e.detail || r.status)); return; }
+  } catch (e) { alert("Reset error: " + e); return; }
+  await loadLibrary();
+  start(false, it.name);
+}
+
 $("refresh").onclick = loadLibrary;
+$("addPdf").onclick = () => $("upload").click();
 
 $("upload").onchange = async (e) => {
   const files = Array.from(e.target.files || []);

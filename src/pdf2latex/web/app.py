@@ -367,6 +367,18 @@ def create_app() -> FastAPI:
         write_standalone(paths)
         return {"slug": slug, "page": page, "restored": True}
 
+    @app.post("/api/reset")
+    def reset_book(slug: str) -> dict:
+        """Delete a book's converted output so it can be reconverted from scratch.
+
+        Removes the whole output folder for the slug (pages, monolith, standalone,
+        PDF, logs). The source PDF in sources/ is never touched.
+        """
+        paths = BookPaths.for_source(SOURCES_DIR / f"{slug}.pdf", output_root=OUTPUT_DIR)
+        if paths.out_dir.exists():
+            shutil.rmtree(paths.out_dir, ignore_errors=True)
+        return {"slug": slug, "reset": True}
+
     @app.get("/api/library")
     def library() -> dict:
         from pypdf import PdfReader

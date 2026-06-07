@@ -176,6 +176,24 @@ def test_compile_endpoint_surfaces_errors(
     assert body["errors"] == []  # no pdflatex log to parse in this stub
 
 
+def test_reset_deletes_output_dir(client: TestClient, tmp_path: Path) -> None:
+    out = tmp_path / "out" / "book"
+    (out / "pages").mkdir(parents=True)
+    (out / "pages" / "page_0001.tex").write_text("X", encoding="utf-8")
+    (out / "book-standalone.tex").write_text("doc", encoding="utf-8")
+
+    r = client.post("/api/reset", params={"slug": "book"})
+    assert r.status_code == 200
+    assert r.json()["reset"] is True
+    assert not out.exists()  # the whole converted output is gone
+
+
+def test_reset_missing_slug_is_noop(client: TestClient) -> None:
+    r = client.post("/api/reset", params={"slug": "never-converted"})
+    assert r.status_code == 200
+    assert r.json()["reset"] is True
+
+
 def test_open_file_endpoint(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

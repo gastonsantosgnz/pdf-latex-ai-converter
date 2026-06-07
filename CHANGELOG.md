@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   estimate, a single-page test before a full run, live progress over
   Server-Sent Events, and result downloads. Backed by a new `on_event` progress
   hook on `convert_pdf`.
+- Cleaner Library cards: a clear "Add PDF" button replaces the raw file input;
+  each row shows only its primary actions (Convert/Resume/Compile/Download PDF)
+  and tucks the rest (Estimate, the `.tex` downloads, Open folder, Reconvert)
+  into a "⋯" menu. "Reconvert from scratch" now truly starts over — it deletes
+  the converted pages (new `/api/reset` endpoint) and asks for confirmation with
+  a clear warning first, so an accidental click can't wipe your work silently.
 - Single conversion quality: removed the `default`/`dense` profile choice
   entirely. This tool is for math-heavy documents, so every page is always
   converted at full fidelity (faithful tables and diagrams, all math, decorative
