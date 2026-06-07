@@ -108,7 +108,7 @@
     <div class="card-head">
       <h2>Library</h2>
       <div class="file">
-        <input type="file" id="upload" accept="application/pdf" />
+        <input type="file" id="upload" accept="application/pdf" multiple />
         <button id="refresh" type="button" class="sm">Refresh</button>
       </div>
     </div>
@@ -346,13 +346,17 @@ function renderItem(it) {
 $("refresh").onclick = loadLibrary;
 
 $("upload").onchange = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const fd = new FormData();
-  fd.append("file", file);
-  const r = await fetch("/api/upload", { method: "POST", body: fd });
-  if (!r.ok) { alert("Upload failed"); return; }
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+  const failed = [];
+  for (const file of files) {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch("/api/upload", { method: "POST", body: fd });
+    if (!r.ok) failed.push(file.name);
+  }
   e.target.value = "";
+  if (failed.length) alert("Could not upload: " + failed.join(", "));
   loadLibrary();
 };
 
