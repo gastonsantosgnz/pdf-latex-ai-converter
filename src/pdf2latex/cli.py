@@ -7,6 +7,7 @@ Subcommands:
     split      Split the monolith into chapter files (config or --auto).
     compile    Compile the standalone .tex into PDF (needs pdflatex).
     fix        Compile and auto-repair the pages that break (vision + the error).
+    render-pages  Render pending pages to PNGs (for the in-session Claude Code skill).
     validate   Check converted pages for broken LaTeX (offline).
     serve      Launch the local web UI (needs the [web] extra).
 """
@@ -140,6 +141,38 @@ def _cmd_fix(args: argparse.Namespace) -> int:
     if result.stuck:
         print("Some pages still need a manual edit (see the page .tex files).")
     return 1
+
+
+def _cmd_render_pages(args: argparse.Namespace) -> int:
+    """Render the pages still needing conversion to PNGs (for the Claude Code skill)."""
+    from pypdf import PdfReader
+
+    from .worker import render_page_to_file
+
+    source = resolve_source(args.source)
+    paths = (
+        BookPaths.for_source(source, output_root=args.out)
+        if args.out
+        else BookPaths.for_source(source)
+    )
+    paths.ensure_dirs()
+    total = len(PdfReader(str(source)).pages)
+    start = args.start or 1
+    end = min(args.end or total, total)
+    render_dir = paths.out_dir / "_render"
+    render_dir.mkdir(parents=True, exist_ok=True)
+
+    rendered = 0
+    for n in range(start, end + 1):
+        tex = paths.page_tex(n)
+        if not args.force and tex.exists() and tex.stat().st_size > 0:
+            continue
+        png = render_dir / f"page_{n:04d}.png"
+        render_page_to_file(str(source), n - 1, png, scale=args.scale)
+        print(f"page {n}: {png}  ->  {tex}")
+        rendered += 1
+    print(f"\n{rendered} page(s) to transcribe (range {start}-{end} of {total}).")
+    return 0
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
@@ -302,6 +335,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_out_arg(pf)
     pf.set_defaults(func=_cmd_fix)
+
+    prp = sub.add_parser(
+        "render-pages",
+        help="Render pending pages to PNGs (used by the in-session Claude Code skill).",
+    )
+    prp.add_argument("source", help="Source PDF reference or existing output slug.")
+    prp.add_argument("--start", type=int, help="First page (1-based).")
+    prp.add_argument("--end", type=int, help="Last page (1-based).")
+    prp.add_argument("--scale", type=float, default=2.2, help="Render scale (default 2.2).")
+    prp.add_argument(
+        "--force", action="store_true", help="Render every page in range, not just pending."
+    )
+    _add_out_arg(prp)
+    prp.set_defaults(func=_cmd_render_pages)
 
     pvd = sub.add_parser("validate", help="Check converted pages for broken LaTeX (offline).")
     pvd.add_argument("source", help="Source PDF reference or existing output slug.")

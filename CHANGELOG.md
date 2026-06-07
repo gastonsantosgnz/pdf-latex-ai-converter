@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   estimate, a single-page test before a full run, live progress over
   Server-Sent Events, and result downloads. Backed by a new `on_event` progress
   hook on `convert_pdf`.
+- In-session Claude Code skill (`pdf-to-latex-claude`): convert a PDF to LaTeX
+  using Claude's own vision inside a Claude Code session — Claude reads each page
+  and writes its `.tex`, billed to the Claude subscription, with no OpenAI API and
+  no headless `claude -p` (so no separate auth). Backed by a new
+  `pdf2latex render-pages` command that renders the pending pages to PNGs; the
+  skill then transcribes each and runs `pdf2latex compile`. Resumable like the
+  other engines.
 - Claude Code engine: a second conversion engine (`--engine claude-code`, or
   *Claude Code* in the web UI's Engine selector) that converts each page via the
   local `claude` CLI in headless mode (`claude -p`), using your Claude

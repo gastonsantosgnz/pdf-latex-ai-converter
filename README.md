@@ -145,6 +145,7 @@ pdf2latex fix "My Book" --max-rounds 3 --max-tries 2
 | `pdf2latex split <pdf\|slug>` | Split into chapters: `--config <file.json>` or `--auto`. |
 | `pdf2latex compile <pdf\|slug>` | Compile the standalone `.tex` to PDF: `--engine`, `--runs`. |
 | `pdf2latex fix <pdf\|slug>` | Compile and auto-repair the pages that break (page image + the compile error), looping until the PDF builds. Flags: `--model`, `--max-rounds`, `--max-tries`. |
+| `pdf2latex render-pages <pdf\|slug>` | Render the pages still needing conversion to PNGs (used by the `pdf-to-latex-claude` Claude Code skill). Flags: `--start`, `--end`, `--scale`, `--force`. |
 | `pdf2latex validate <pdf\|slug>` | Check converted pages for broken LaTeX offline (braces, environments, math); writes `needs-review.txt`. Flags: `--deep-check`, `--engine`. |
 | `pdf2latex serve` | Launch the optional local web UI in the browser (needs the `[web]` extra). Flags: `--host`, `--port`. |
 
@@ -226,6 +227,13 @@ output/Book/Book-standalone.tex  ──pdflatex──▶  Book-standalone.pdf
   ```bash
   pdf2latex convert "My Book.pdf" --engine claude-code
   ```
+- **Convert from inside Claude Code (no API at all).** If you use this repo within
+  [Claude Code](https://claude.com/product/claude-code), the bundled skill
+  **`pdf-to-latex-claude`** lets Claude convert the pages itself — it reads each
+  rendered page and writes the LaTeX in-session, billed to your Claude
+  subscription. Just ask Claude to "convert `<PDF>` to LaTeX with the
+  pdf-to-latex-claude skill". Under the hood it uses `pdf2latex render-pages` to
+  produce the page images and `pdf2latex compile` to build the PDF.
 - The cost figure is an estimate, and the GPT-5 prices shipped in the table are
   best-effort. Override the per-model price table without editing code by pointing
   `PDF2LATEX_PRICES` at a JSON file, where each value is
