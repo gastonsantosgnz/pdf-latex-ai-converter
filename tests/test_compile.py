@@ -58,3 +58,31 @@ def test_compile_failure_raises_with_log_tail(
     )
     with pytest.raises(SystemExit, match="failed"):
         compile_pdf(_tex(tmp_path), runs=2)
+
+
+def test_compile_lenient_returns_pdf_despite_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(compile_mod.shutil, "which", lambda _engine: "/usr/bin/pdflatex")
+    tex = _tex(tmp_path)
+    tex.with_suffix(".pdf").write_bytes(b"%PDF-1.4")  # pretend a PDF was produced
+    monkeypatch.setattr(
+        compile_mod.subprocess,
+        "run",
+        lambda cmd, **kwargs: SimpleNamespace(returncode=1, stdout="! LaTeX Error", stderr=""),
+    )
+    # halt_on_error=False: a PDF exists, so it is returned despite the error.
+    assert compile_pdf(tex, runs=1, halt_on_error=False) == tex.with_suffix(".pdf")
+
+
+def test_compile_lenient_raises_when_no_pdf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(compile_mod.shutil, "which", lambda _engine: "/usr/bin/pdflatex")
+    monkeypatch.setattr(
+        compile_mod.subprocess,
+        "run",
+        lambda cmd, **kwargs: SimpleNamespace(returncode=1, stdout="! fatal", stderr=""),
+    )
+    with pytest.raises(SystemExit, match="did not produce a PDF"):
+        compile_pdf(_tex(tmp_path), runs=1, halt_on_error=False)

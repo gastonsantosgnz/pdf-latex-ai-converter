@@ -134,6 +134,45 @@ def test_render_bad_page_is_404(client: TestClient, tmp_path: Path) -> None:
     assert client.get("/api/render", params={"source": "book.pdf", "page": 99}).status_code == 404
 
 
+def test_compile_endpoint_produces_downloadable_pdf(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path / "out" / "book"
+    out.mkdir(parents=True)
+    (out / "book-standalone.tex").write_text("doc", encoding="utf-8")
+
+    def fake_compile(standalone_tex, **_kw):
+        pdf = standalone_tex.with_suffix(".pdf")
+        pdf.write_bytes(b"%PDF-1.4")
+        return pdf
+
+    monkeypatch.setattr("pdf2latex.compile.compile_pdf", fake_compile)
+
+    r = client.post("/api/compile", params={"slug": "book"})
+    assert r.status_code == 200 and r.json()["pdf"] == "book-standalone.pdf"
+    assert client.get("/api/output/book/pdf").status_code == 200
+
+
+def test_compile_endpoint_without_standalone_is_404(client: TestClient) -> None:
+    assert client.post("/api/compile", params={"slug": "missing"}).status_code == 404
+
+
+def test_compile_endpoint_surfaces_errors(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path / "out" / "book"
+    out.mkdir(parents=True)
+    (out / "book-standalone.tex").write_text("doc", encoding="utf-8")
+
+    def boom(*_a, **_k):
+        raise SystemExit("pdflatex failed: bad page")
+
+    monkeypatch.setattr("pdf2latex.compile.compile_pdf", boom)
+    r = client.post("/api/compile", params={"slug": "book"})
+    assert r.status_code == 400
+    assert "pdflatex failed" in r.json()["detail"]
+
+
 def test_convert_forwards_start_end(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

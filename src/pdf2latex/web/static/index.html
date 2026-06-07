@@ -61,6 +61,8 @@
   .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
   .bar { height: 10px; background: #10131a; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
   .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
+  .bar.busy > i { animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
   .status { display: flex; justify-content: space-between; font-size: 13px; margin: 10px 0 6px; }
   .muted { color: var(--muted); }
   .log { margin-top: 12px; max-height: 200px; overflow: auto; background: #0c0e13; border: 1px solid var(--line);
@@ -144,7 +146,7 @@
   <div class="card hidden" id="progressCard">
     <h2 id="progressTitle" style="margin-bottom:12px">Progress</h2>
     <div class="status"><span id="statusText" class="muted">Starting…</span><span id="tally" class="muted"></span></div>
-    <div class="bar"><i id="barFill"></i></div>
+    <div class="bar" id="bar"><i id="barFill"></i></div>
     <div class="status" style="margin-top:8px"><span id="timer" class="muted"></span><span></span></div>
     <div class="log" id="log"></div>
   </div>
@@ -188,11 +190,12 @@ let convStart = 0, convTimer = null, lastEta = "", activeSource = "";
 let skipCount = 0, skipLineEl = null;
 const LABEL = { pending: "Pending", in_progress: "In progress", done: "Done" };
 const DL = {
-  standalone: { label: "Document (.tex)", tip: "Complete document, ready to compile to PDF (recommended)" },
+  pdf: { label: "PDF", tip: "The compiled PDF — the final document you want" },
+  standalone: { label: "Document (.tex)", tip: "Complete LaTeX source (advanced)" },
   monolith: { label: "Pages only (.tex)", tip: "Just the converted page content, without a preamble (advanced)" },
   "needs-review": { label: "Needs review", tip: "Pages that may still need a human check" },
 };
-const DL_ORDER = ["standalone", "monolith", "needs-review"];
+const DL_ORDER = ["pdf", "standalone", "monolith", "needs-review"];
 const STATUS_LABEL = { ok: "ok", skip: "already done", repaired: "repaired", err: "failed" };
 const STATUS_CLASS = { ok: "ok", skip: "skip", repaired: "ok", err: "err" };
 
@@ -396,6 +399,9 @@ function renderItem(it) {
     .map((k) => `<a href="/api/output/${it.slug}/${k}" title="${DL[k].tip}">${DL[k].label}</a>`)
     .join("");
   const openBtn = present.size ? '<button class="sm open" type="button">Open folder</button>' : "";
+  const compileBtn = present.has("standalone")
+    ? '<button class="sm comp primary" type="button">Compile PDF</button>'
+    : "";
   el.innerHTML = `
     <div class="item-top">
       <span class="item-name">${it.name}</span>
@@ -405,13 +411,16 @@ function renderItem(it) {
     <div class="item-meta"><span>${it.done}/${it.total} pages</span>${review}</div>
     <div class="item-actions">
       <button class="sm est" data-src="${it.name}">Estimate</button>
-      <button class="sm act primary" data-src="${it.name}">${convertLabel}</button>
+      <button class="sm act" data-src="${it.name}">${convertLabel}</button>
+      ${compileBtn}
       ${downloads}${openBtn}
     </div>`;
   el.querySelector("button.est").onclick = () => openEstimate(it.name);
   el.querySelector("button.act").onclick = () => start(false, it.name);
   const ob = el.querySelector("button.open");
   if (ob) ob.onclick = () => revealFolder(it.slug);
+  const cb = el.querySelector("button.comp");
+  if (cb) cb.onclick = () => compileBook(it.slug, it.name);
   return el;
 }
 
@@ -443,7 +452,35 @@ function logLine(text, cls) {
 
 function setBusy(busy) {
   running = busy;
-  document.querySelectorAll("button.act, button.est").forEach((b) => (b.disabled = busy));
+  document.querySelectorAll("button.act, button.est, button.comp").forEach((b) => (b.disabled = busy));
+}
+
+async function compileBook(slug, name) {
+  if (running) return;
+  setBusy(true);
+  $("progressCard").classList.remove("hidden");
+  $("progressTitle").textContent = "Compiling PDF — " + name;
+  $("log").innerHTML = ""; $("tally").textContent = ""; $("timer").textContent = "";
+  $("statusText").textContent = "Running LaTeX… this can take a minute";
+  $("bar").classList.add("busy"); $("barFill").style.width = "100%";
+  logLine("Compiling " + name + " to PDF…");
+  try {
+    const r = await fetch("/api/compile?slug=" + encodeURIComponent(slug), { method: "POST" });
+    if (r.ok) {
+      $("statusText").textContent = "PDF ready";
+      logLine("PDF compiled. The PDF download is now available on the row below.", "ok");
+      await loadLibrary();
+    } else {
+      const err = await r.json().catch(() => ({}));
+      $("statusText").textContent = "Compile failed";
+      logLine(String(err.detail || ("Compile failed (" + r.status + ")")), "err");
+    }
+  } catch (e) {
+    $("statusText").textContent = "Compile error";
+    logLine("Compile error: " + e, "err");
+  }
+  $("bar").classList.remove("busy");
+  setBusy(false);
 }
 
 async function start(dryRun, source) {

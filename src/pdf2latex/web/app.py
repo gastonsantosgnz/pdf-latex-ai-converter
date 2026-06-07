@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -44,6 +45,7 @@ class Job:
 
 def _output_targets(paths: BookPaths) -> dict:
     return {
+        "pdf": paths.standalone_tex.with_suffix(".pdf"),
         "monolith": paths.monolith_tex,
         "standalone": paths.standalone_tex,
         "needs-review": paths.out_dir / "needs-review.txt",
@@ -66,6 +68,27 @@ def _needs_review_count(paths: BookPaths) -> int:
         except ValueError:
             return 0
     return 0
+
+
+def _offending_pages(paths: BookPaths) -> list[int]:
+    """Map the line numbers in a failed pdflatex log to the source page numbers."""
+    log = paths.standalone_tex.with_suffix(".log")
+    if not log.exists() or not paths.monolith_tex.exists():
+        return []
+    error_lines = {int(n) for n in re.findall(r"l\.(\d+)", log.read_text("utf-8", errors="replace"))}
+    if not error_lines:
+        return []
+    markers: list[tuple[int, int]] = []  # (1-based line in monolith, page number)
+    for i, line in enumerate(paths.monolith_tex.read_text("utf-8", errors="replace").splitlines(), 1):
+        m = re.match(r"% ===== Page (\d+) =====", line.strip())
+        if m:
+            markers.append((i, int(m.group(1))))
+    pages: set[int] = set()
+    for ln in error_lines:
+        page = next((pg for mi, pg in reversed(markers) if mi <= ln), None)
+        if page is not None:
+            pages.add(page)
+    return sorted(pages)
 
 
 def _result_payload(paths: BookPaths, *, dry_run: bool) -> dict:
@@ -253,6 +276,29 @@ def create_app() -> FastAPI:
             cmd = ["xdg-open", str(target)]
         subprocess.Popen(cmd)  # noqa: S603 - local single-user tool, path is sandboxed
         return {"opened": str(target)}
+
+    @app.post("/api/compile")
+    def compile_to_pdf(slug: str) -> dict:
+        from ..compile import compile_pdf
+
+        paths = BookPaths.for_source(SOURCES_DIR / f"{slug}.pdf", output_root=OUTPUT_DIR)
+        if not paths.standalone_tex.exists():
+            raise HTTPException(status_code=404, detail="Nothing to compile yet — convert first.")
+        try:
+            # Lenient: produce a PDF even if a few machine-generated pages have errors.
+            pdf = compile_pdf(paths.standalone_tex, halt_on_error=False)
+        except SystemExit as exc:
+            pages = _offending_pages(paths)
+            if pages:
+                plist = ", ".join(str(p) for p in pages)
+                detail = (
+                    f"Could not build the PDF: LaTeX errors on page(s) {plist}. "
+                    "Fix or re-test those pages (Estimate -> Test page), then compile again."
+                )
+            else:
+                detail = str(exc)
+            raise HTTPException(status_code=400, detail=detail) from exc
+        return {"slug": slug, "pdf": pdf.name}
 
     @app.get("/api/library")
     def library() -> dict:
