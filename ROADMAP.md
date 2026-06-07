@@ -50,12 +50,12 @@ safe, without spending a cent on the OpenAI API.
 
 ---
 
-## 3. Open-source community files & metadata — `in progress`
+## 3. Open-source community files & metadata — `done`
 
 **Goal.** Make the project welcoming and credible to outside contributors.
 
 **Deliverables.**
-- `CONTRIBUTING.md` (dev setup, lint/test commands, commit conventions). _Pending._
+- `CONTRIBUTING.md` (dev setup, lint/test commands, commit conventions).
 - `CODE_OF_CONDUCT.md` (Contributor Covenant).
 - `CHANGELOG.md` (Keep a Changelog format, semver).
 - `.github/ISSUE_TEMPLATE/` (bug report + feature request) and
