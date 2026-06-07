@@ -121,6 +121,19 @@ def test_page_tex_returns_latex_or_404(client: TestClient, tmp_path: Path) -> No
     assert client.get("/api/page/book/9").status_code == 404
 
 
+def test_render_returns_png(client: TestClient, tmp_path: Path) -> None:
+    _make_pdf(tmp_path / "sources" / "book.pdf", 2)
+    r = client.get("/api/render", params={"source": "book.pdf", "page": 1, "scale": 1.0})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_render_bad_page_is_404(client: TestClient, tmp_path: Path) -> None:
+    _make_pdf(tmp_path / "sources" / "book.pdf", 1)
+    assert client.get("/api/render", params={"source": "book.pdf", "page": 99}).status_code == 404
+
+
 def test_convert_forwards_start_end(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

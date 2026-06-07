@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from ..layout import OUTPUT_DIR, SOURCES_DIR, BookPaths, resolve_source
 
@@ -211,6 +211,22 @@ def create_app() -> FastAPI:
         if not tex.exists():
             raise HTTPException(status_code=404, detail="page not converted yet")
         return {"page": number, "slug": slug, "latex": tex.read_text(encoding="utf-8")}
+
+    @app.get("/api/render")
+    def render(source: str, page: int, scale: float = 1.5) -> Response:
+        import base64
+
+        from ..worker import render_page_to_base64
+
+        try:
+            pdf = resolve_source(source, sources_dir=SOURCES_DIR)
+        except SystemExit as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            b64 = render_page_to_base64(str(pdf), page_index=page - 1, scale=scale)
+        except Exception as exc:  # noqa: BLE001 - bad page index or unreadable PDF
+            raise HTTPException(status_code=404, detail=f"could not render page {page}") from exc
+        return Response(content=base64.b64decode(b64), media_type="image/png")
 
     @app.get("/api/pdfs")
     def list_pdfs() -> dict:

@@ -87,7 +87,11 @@
   .est-cost { font-size: 13px; color: var(--ok); }
   .est-test { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .est-test input { width: 90px; }
-  .testout { margin-top: 10px; max-height: 240px; overflow: auto; background: #0c0e13; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: 12px/1.5 ui-monospace, Menlo, monospace; color: #c7ced9; white-space: pre-wrap; }
+  .testout { margin-top: 10px; max-height: 320px; overflow: auto; background: #0c0e13; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: 12px/1.5 ui-monospace, Menlo, monospace; color: #c7ced9; white-space: pre-wrap; }
+  .testresult { display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap; align-items: flex-start; }
+  .testresult img { width: 42%; min-width: 140px; flex: 0 0 auto; align-self: flex-start; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  .testresult .testout { flex: 1; min-width: 150px; margin-top: 0; }
+  .testresult .testlabel { width: 100%; font-size: 12px; color: var(--muted); margin-bottom: 2px; }
 </style>
 </head>
 <body>
@@ -237,7 +241,11 @@ async function openEstimate(source) {
       <button id="testBtn" type="button" class="sm">Test page</button>
       <span id="testStatus" class="muted" style="font-size:12px"></span>
     </div>
-    <pre id="testOut" class="testout hidden"></pre>
+    <div id="testResult" class="testresult hidden">
+      <div class="testlabel">Source page (left) vs generated LaTeX (right)</div>
+      <img id="testImg" alt="source page" />
+      <pre id="testOut" class="testout"></pre>
+    </div>
     <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
       <button id="estConvert" type="button" class="primary">Convert all pending</button>
     </div>`;
@@ -255,8 +263,11 @@ async function openEstimate(source) {
 
 function runTest(source, n) {
   $("testBtn").disabled = true;
-  $("testOut").classList.add("hidden");
   $("testStatus").textContent = `converting page ${n}…`;
+  // Show the source page image right away (rendering is offline); LaTeX fills in when done.
+  $("testImg").src = `/api/render?source=${encodeURIComponent(source)}&page=${n}`;
+  $("testOut").textContent = "";
+  $("testResult").classList.remove("hidden");
   const fd = new FormData();
   fd.append("source", source);
   fd.append("model", $("model").value);
@@ -279,8 +290,7 @@ function runTest(source, n) {
             const pr = await fetch(`/api/page/${estState.slug}/${n}`);
             if (pr.ok) {
               $("testOut").textContent = (await pr.json()).latex;
-              $("testOut").classList.remove("hidden");
-              $("testStatus").textContent = `page ${n} converted — review below`;
+              $("testStatus").textContent = `page ${n} converted — compare below`;
             }
           } catch (_) { /* status already shown */ }
           loadLibrary();
