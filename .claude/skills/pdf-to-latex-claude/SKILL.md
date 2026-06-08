@@ -77,6 +77,22 @@ A 255-page dense geometry batch converted this way in ~35 min with 51 agents, an
   the MUST-COMPILE constraints; have it return `{written:[...], flagged:[...]}` where
   `flagged` lists pages whose diagrams it could only approximate (for a later visual pass).
 
+### The three-pass pipeline (what actually shipped a 320-page book)
+
+Run each pass as its own Workflow, re-validating and recompiling between passes:
+1. **Transcribe** — one agent per ~5-page batch writes each `page_NNNN.tex`.
+2. **Refine diagrams** — a second fleet over the figure-dense pages re-reads each page
+   and redraws only the TikZ (text/math kept) for higher figure fidelity.
+3. **Verify + photos** — a third fleet re-reads every page against the original, makes
+   targeted `Edit` fixes (misread numbers, dropped lines, wrong formulas, broken
+   figures) and inserts the photo placeholder + `Prompt IA` where the source has a
+   photo. Tell verify agents to be conservative: change only genuine errors, never
+   "improve" already-correct content.
+
+After EVERY pass: per-page validation → fix failures → `assemble` → `compile`. On a
+320-page geometry book the verify pass alone caught ~75 real errors a single pass
+missed (wrong area/volume formulas, dropped congruence marks, mis-drawn figures).
+
 ## Agent roles — where specialization helps (and where it doesn't)
 
 Tempting idea: per page, run separate agents for text / math / diagrams / a coherence
