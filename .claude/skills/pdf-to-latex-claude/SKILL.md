@@ -140,6 +140,26 @@ at the first one.
   expression. Replace with an explicit `\coordinate (D) at (x,y);`.
 - `Dimension too large` in a `plot`: `sin(... r)` with large radian arguments (or `exp`)
   overflows pgfmath. Use degrees and bounded arguments, e.g. `sin(\x*150)`.
+- `Missing number, treated as zero` in a display/array: a line break `\\` is followed
+  (same line or next) by a content bracket `[...]`, so LaTeX reads it as the optional
+  arg `\\[<dimen>]`. Common in logic/proof arrays where a line starts with `[`. Insert
+  an empty group: `\\ {}[A \supset B]`. Bulk fix: regex `\\\\(\s*)\[(?=[^0-9\]])` ->
+  `\\\1{}[` (skips legit `\\[2pt]`).
+
+## When agents skip pages / "claim done without writing"
+
+In a transcription fleet some agents finish their turn WITHOUT calling Write (they
+report "done" but wrote nothing) — worst on dense/long-prose pages, where reading the
+image(s) + the rules dump exhausts the turn before the big write. Defenses:
+- **Verify on disk, never trust the report.** After each pass, list `page_NNNN.tex`
+  with size > 0 and recompute the missing set; loop the fleet on only what's missing.
+- **Shrink the per-agent load** each retry: fewer pages per batch (5 -> 3 -> 1), and a
+  LEAN prompt (read only the full-page PNG, skip the rules dump) so there's budget left
+  to write. Add a self-check (`cat` the file before finishing).
+- **Fallback to the OpenAI engine for the stragglers.** A handful of stubborn pages
+  convert reliably and cheaply with `pdf2latex convert "<pdf>" --model gpt-5 -y`
+  (resumable: it only does the pages still missing). ~26 pages cost ~\$0.92. This
+  hybrid (Claude fleet for the bulk + gpt-5 for the tail) avoids endless retry rounds.
 
 ## Notes
 - Resumable: a page with a non-empty `page_NNNN.tex` is skipped, so stop/continue freely.
