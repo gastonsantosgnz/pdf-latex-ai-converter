@@ -145,6 +145,9 @@ at the first one.
   arg `\\[<dimen>]`. Common in logic/proof arrays where a line starts with `[`. Insert
   an empty group: `\\ {}[A \supset B]`. Bulk fix: regex `\\\\(\s*)\[(?=[^0-9\]])` ->
   `\\\1{}[` (skips legit `\\[2pt]`).
+- `Undefined control sequence \rowcolor` / `\cellcolor`: colored-table commands need
+  `\usepackage{colortbl}` (now in the standalone template). Agents emit these freely
+  on colorful textbook tables, so keep `colortbl` loaded rather than stripping them.
 
 ## When agents skip pages / "claim done without writing"
 
